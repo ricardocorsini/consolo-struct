@@ -1,3 +1,4 @@
+import { withoutAddedDuctility } from "./reference/without-added-ductility";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { calculate } from "../src/domain/engine";
@@ -116,9 +117,10 @@ describe("Regressão capturada no upstream e903617, antes da integração de cla
       p.rebar.tieDiameter = 20;
       p.design.bond = "poor";
       // Mesmo projeto capturado antes do recorte; preserve o hash integral,
-      // sem normalizar resultados nem o fingerprint. Campo ausente usa keep.
+      // mantém valores/estados/fingerprint; somente os novos itens da issue #4
+      // são excluídos pelo helper explícito. Campo ausente usa keep.
       delete (p.design as Partial<typeof p.design>).excessConcrete;
-      const result = calculate(p);
+      const result = withoutAddedDuctility(calculate(p));
       expect(result.values.fbd).toBe(fbd);
       expect(result.values.lb).toBe(lb);
       expect(result.values.anchorRequired).toBe(lbNec);

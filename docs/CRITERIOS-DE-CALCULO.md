@@ -29,17 +29,17 @@ A edição bibliográfica completa dos dois livros não foi inferida a partir de
 
 ## Decisões entre fontes
 
-| Questão                    | Diferença encontrada                                                                                     | Decisão do motor                                                                                                                  |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| γn                         | 6118 §22.2 indica pelo menos 1,2; 9062 §7.3.1.1 distingue produção e predominância da ação permanente    | `max(1,2; γn9062; γn informado)`. É política conservadora explícita, não declaração de que os textos são idênticos                |
-| Fronteira a/d = 0,5        | A classificação literal da 6118 inclui a fronteira em curtos; a 9062 a inclui em muito curtos            | Convenção da 9062. A memória registra o modelo; bielas pode ser solicitado para monolítico                                        |
-| Costura                    | 9062 expressa **área por altura**; 6118 prescreve **área total** de pelo menos 40% do tirante nos curtos | Converter corretamente as grandezas e usar o envelope descrito adiante                                                            |
-| Resistência no muito curto | Limites de 6 MPa e coeficientes antigos aparecem em El Debs                                              | Usar a expressão da 9062:2017, com teto 8 MPa; não copiar limites históricos como norma atual                                     |
-| H mínimo                   | O livro traz a aproximação histórica H/V = 0,20                                                          | Usar tipo de apoio da 9062:2017 ou resultante de análise justificada                                                              |
-| Taxa mecânica máxima       | ω = 0,15 aparece no tratamento histórico                                                                 | Não apresentá-la como limite atual. No modelo de atrito, a demonstração de ductilidade permanece pendente de análise complementar |
-| Suspensão                  | O tratamento simplificado do livro pode atribuir parcela da reação ao mecanismo direto                   | Dimensionar para **100% da ação indireta**, conforme as normas fornecidas                                                         |
-| Barra soldada              | Regras de várias barras transversais e regra de barra única são diferentes                               | Barra única com mesmo diâmetro, geometria e qualificação específica; não usar a regra de 60% do tirante                           |
-| CA-60 / aderência          | A definição de η1 depende da superfície do fio/barra                                                     | Preservar η1 = 2,25 para CA-50 e 1,00 para CA-25/CA-60; CA-60 pendente de confirmação pelo responsável técnico, conforme issue #3 |
+| Questão                    | Diferença encontrada                                                                                     | Decisão do motor                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| γn                         | 6118 §22.2 indica pelo menos 1,2; 9062 §7.3.1.1 distingue produção e predominância da ação permanente    | `max(1,2; γn9062; γn informado)`. É política conservadora explícita, não declaração de que os textos são idênticos                                   |
+| Fronteira a/d = 0,5        | A classificação literal da 6118 inclui a fronteira em curtos; a 9062 a inclui em muito curtos            | Convenção da 9062. A memória registra o modelo; bielas pode ser solicitado para monolítico                                                           |
+| Costura                    | 9062 expressa **área por altura**; 6118 prescreve **área total** de pelo menos 40% do tirante nos curtos | Converter corretamente as grandezas e usar o envelope descrito adiante                                                                               |
+| Resistência no muito curto | Limites de 6 MPa e coeficientes antigos aparecem em El Debs                                              | Usar a expressão da 9062:2017, com teto 8 MPa; não copiar limites históricos como norma atual                                                        |
+| H mínimo                   | O livro traz a aproximação histórica H/V = 0,20                                                          | Usar tipo de apoio da 9062:2017 ou resultante de análise justificada                                                                                 |
+| Taxa mecânica máxima       | ω = 0,15 aparece no tratamento histórico                                                                 | Não apresentá-la como limite atual. Ver as três verificações adicionais abaixo; elas não substituem a análise complementar de ductilidade no atrito. |
+| Suspensão                  | O tratamento simplificado do livro pode atribuir parcela da reação ao mecanismo direto                   | Dimensionar para **100% da ação indireta**, conforme as normas fornecidas                                                                            |
+| Barra soldada              | Regras de várias barras transversais e regra de barra única são diferentes                               | Barra única com mesmo diâmetro, geometria e qualificação específica; não usar a regra de 60% do tirante                                              |
+| CA-60 / aderência          | A definição de η1 depende da superfície do fio/barra                                                     | Preservar η1 = 2,25 para CA-50 e 1,00 para CA-25/CA-60; CA-60 pendente de confirmação pelo responsável técnico, conforme issue #3                    |
 
 ## Unidades e entradas
 
@@ -228,6 +228,28 @@ Complemento de El Debs: a área não fica abaixo da obtida pelo equilíbrio com 
 **Ductilidade permanece com estado “conferir” no modelo de atrito.** A expressão empírica de resistência, isoladamente, não fornece demonstração completa de que o tirante escoa antes de mecanismos frágeis. O antigo limite ω=0,15 não foi promovido a requisito vigente. Não existe botão que transforme essa pendência em aprovação.
 
 Para concretagem monolítica é possível selecionar explicitamente bielas, usando a extensão de Araújo para muito curtos: limitar tanθ a 1,4 e usar a altura efetiva correspondente. Esse caminho deve ser avaliado pelo projetista; não é usado para juntas de concretagem. Em casos muito altos, não se utiliza a dispensa de costura de §7.3.3.13.
+
+### Verificações adicionais de ductilidade e armadura máxima
+
+Nos métodos **bielas e tirantes** e **atrito-cisalhamento**, a issue #4 acrescenta três verificações com estados `pass`/`fail`, além dos critérios anteriores. Cada id é envelopado separadamente por combinação. O método de viga em balanço conserva suas verificações anteriores; estas três não são acrescentadas a ele. O domínio existente do atrito também é preservado (não se força atrito em a/d > 0,5).
+
+Em mm, N e MPa, sem arredondamento intermediário: b e h são as dimensões da seção do consolo; d e d′ vêm do arranjo atual do tirante; a é a posição de cálculo da reação. Vd/Hd são os esforços simultâneos da combinação, já com as majorações e o peso próprio aplicáveis, sem nova majoração neste bloco.
+
+- `λ = 0,8` para fck ≤ 50 MPa; para fck > 50, `λ = 0,8 − (fck − 50)/400`, como nos materiais do motor.
+- `lim = 0,45` para fck ≤ 50 MPa; `lim = 0,35` acima de 50 MPa (até o domínio existente de 90 MPa).
+- **Ductilidade da seção (`ductilityXd`):** `x = As,ef fyd/(λ b fcd)`; `x/d ≤ lim`. Usa As efetivamente adotada e `fyd = fyk/γs`, sem o teto de 435 MPa usado nas fórmulas anteriores. Esse teto e as demais fórmulas existentes não mudam.
+- **Armadura máxima (`maxSteel`):** `As,máx = 0,04 b h`; `As,ef ≤ As,máx`. A área é a do tirante adotado.
+- **Rotação plástica do nó (`plasticRotation`):** `fcdCCC = 0,85 αv2 fcd`; `a1 = Vd/(b fcdCCC)`; `aexc = a1/2 + a + (Hd/Vd)d′`; `R = d² − 2 a1 aexc`. Com R ≥ 0, `x = d − √R` e `x/(λd) ≤ lim`. O x desse nó é uma grandeza distinta do x da seção acima. Usa **b da seção**, seguindo a fórmula solicitada, e não a largura do aparelho de apoio.
+
+Se R < 0, a rotação **falha com valor indeterminado**, exibido como **sem solução**. O motor conserva R e o limite, omite `plastic_x`/`plastic_ratio` e usa `demand: null`, `capacity: lim`, `utilization: null`; não atribui um número sentinela a x ou à razão. Uma combinação sem raiz real governa a rotação também quando outra tem razão finita acima do limite. Os demais ids conservam o envelope anterior.
+
+As referências são **citadas no GN Corbel e não foram conferidas nos textos da ABNT**: NBR 6118:2023 §17.2.3 para x/d; §17.3.5.2.4 para As,máx; NBR 6118:2023 §22.3 e NBR 9062:2017 §5.1.2.9 para rotação. Não se presume equivalência automática com a edição 2026 citada em outras partes do motor.
+
+Essas três verificações **não certificam ductilidade global, capacidade de rotação da estrutura ou detalhamento executivo**. Não substituem nem retiram a comparação de escoamento prévio do modelo de bielas ou a nota `ductility` com estado `review` no atrito. O limite histórico ω ≤ 0,15 continua fora dos requisitos atuais implementados.
+
+A memória por combinação e o PDF mostram λ, fyd, os dois x, limites, a1, aexc e R; a auditoria conserva os números completos. O CSV geral acrescenta estado, valor, limite, unidade, fórmula, referência e detalhe/combinação para cada id quando há peças com essas verificações; projetos inteiramente de viga conservam o CSV anterior. A sugestão de armaduras exige atendimento às três restrições, sem mudar outras fórmulas ou transformar pendências em aprovação. O esquema de projeto permanece 4, sem novos campos de entrada.
+
+Confira os valores de referência, os testes e os limites de validação em [Validação das verificações adicionais](VALIDACAO-DUCTILIDADE.md).
 
 ### Viga em balanço — 1 < a/d ≤ 2
 

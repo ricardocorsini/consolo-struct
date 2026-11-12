@@ -1,3 +1,4 @@
+import { ductilityRows, isUnsolvedPlasticRotation } from "../domain/ductility";
 import {
   classificationLabels,
   methodLabels,
@@ -141,7 +142,11 @@ function Checks({ checks }: { checks: Check[] }) {
                 </LazyDetails>
               </td>
               <td>
-                {c.demand === null ? "—" : `${number(c.demand, 3)} ${c.unit}`}
+                {isUnsolvedPlasticRotation(c)
+                  ? "sem solução"
+                  : c.demand === null
+                    ? "—"
+                    : `${number(c.demand, 3)} ${c.unit}`}
               </td>
               <td>
                 {c.capacity === null
@@ -318,6 +323,19 @@ function CalculationReport({
                           <span>{label}</span>
                           <strong>
                             {number(Number(value), 3)} {unit}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                    <h4>Ductilidade e armadura máxima</h4>
+                    <div className="memory-values ductility-memory-values">
+                      {ductilityRows(c.values).map(({ label, value, unit }) => (
+                        <div key={label}>
+                          <span>{label}</span>
+                          <strong>
+                            {value === undefined
+                              ? "sem solução"
+                              : `${number(value, 5)} ${unit}`}
                           </strong>
                         </div>
                       ))}

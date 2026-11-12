@@ -1,4 +1,9 @@
 import {
+  corbelDuctility,
+  ductilityReferences,
+  isUnsolvedPlasticRotation,
+} from "./ductility";
+import {
   area,
   fingerprint,
   geometryErrors,
@@ -651,6 +656,23 @@ function calculateCase(
   const beamSkinPerFace = 0.001 * b * g.height;
   const beamStirrupSpacing =
     r.stirrupCount > 1 ? stirrupLayout(p).pitch : g.length;
+  const ductilityValues = isBeam
+    ? {}
+    : corbelDuctility({
+        b,
+        h: g.height,
+        d,
+        dPrime: dp,
+        a,
+        vertical,
+        horizontal,
+        asTie,
+        fck: p.materials.fck,
+        fcd: m.fcd,
+        fyd: m.fyd,
+        lambda: m.lambda,
+        alphaV2: m.alphaV2,
+      });
   const checks: Check[] = [];
   const add = (c: Check) => checks.push(c);
   const profile = concreteProfile(p);
@@ -919,6 +941,48 @@ function calculateCase(
         "NBR 6118 §22.5.1.2(b); NBR 9062 §7.3.4.2",
       ),
     );
+  }
+  if (!isBeam) {
+    add(
+      check(
+        "ductilityXd",
+        "Ductilidade da seção (x/d)",
+        ductilityValues.ductility_xd,
+        ductilityValues.ductility_limit,
+        "",
+        "x = As,ef·fyd/(λ b fcd); x/d ≤ lim; lim = 0,45 (fck ≤ 50 MPa) ou 0,35 (fck > 50 MPa)",
+        ductilityReferences.ductilityXd,
+        "Usa a área efetiva adotada e fyd = fyk/γs, sem a limitação a 435 MPa das fórmulas anteriores. Não certifica ductilidade global nem substitui a análise complementar no atrito.",
+      ),
+    );
+    add(
+      check(
+        "maxSteel",
+        "Armadura longitudinal máxima (4% Ac)",
+        asTie,
+        ductilityValues.maxSteel,
+        "mm²",
+        "As,ef ≤ As,máx = 0,04 b h",
+        ductilityReferences.maxSteel,
+        "Limite da área efetiva do tirante, com b e h da seção do consolo.",
+      ),
+    );
+    const rotation = check(
+      "plasticRotation",
+      "Rotação plástica do nó (x/(λd))",
+      ductilityValues.plastic_ratio ?? NaN,
+      ductilityValues.ductility_limit,
+      "",
+      "fcdCCC = 0,85 αv2 fcd; a1 = Vd/(b fcdCCC); aexc = a1/2 + a + (Hd/Vd)d′; R = d² − 2 a1 aexc; x = d − √(R); x/(λd) ≤ lim",
+      ductilityReferences.plasticRotation,
+      ductilityValues.plastic_ratio === undefined
+        ? "Sem solução: radicando negativo; não há raiz real para x. Usa b da seção, não a largura do apoio. Não certifica ductilidade global."
+        : "Usa b da seção, a posição de cálculo da reação e o par Vd/Hd da mesma combinação. Não certifica ductilidade global nem substitui a análise complementar no atrito.",
+    );
+    // check() suppresses both operands of a non-finite demand. Keep the known limit,
+    // while the missing real root remains fail/null, never a numeric sentinel.
+    rotation.capacity = ductilityValues.ductility_limit;
+    add(rotation);
   }
   add(
     check(
@@ -1402,6 +1466,7 @@ function calculateCase(
     );
   const values = {
     ...m,
+    ...ductilityValues,
     ...coefficientValues,
     d,
     dPrime: dp,
@@ -1774,7 +1839,13 @@ export function calculate(p: Piece): CalculationResult {
       const priority = (v: Check) =>
         (v.status === "fail" ? 1e9 : v.status === "review" ? 1e8 : 0) +
         (v.utilization ?? 0);
-      if (!previous || priority(ch) > priority(previous))
+      const unsolved = isUnsolvedPlasticRotation(ch);
+      const previousUnsolved = previous && isUnsolvedPlasticRotation(previous);
+      if (
+        !previous ||
+        (unsolved && !previousUnsolved) ||
+        (!previousUnsolved && priority(ch) > priority(previous))
+      )
         checks.set(ch.id, { ...ch, detail: `[${c.name}] ${ch.detail}` });
     }
   const enveloped = [...checks.values()];

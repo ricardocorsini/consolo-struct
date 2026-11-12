@@ -1,3 +1,4 @@
+import { withoutAddedDuctility } from "./reference/without-added-ductility";
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { designSchema } from "../src/domain/design";
@@ -17,7 +18,8 @@ import { suggestReinforcement } from "../src/domain/autodesign";
 
 describe("Coeficientes dos materiais — resistências em MPa", () => {
   // Resultados completos capturados antes desta alteração, no upstream 41c3a12.
-  // Excluem-se somente os quatro novos campos de metadados de coeficientes.
+  // A comparação histórica exclui metadados já documentados e, agora,
+  // somente as três verificações/valores novos da issue #4 (helper explícito).
   it.each([
     [
       "friction",
@@ -64,17 +66,19 @@ describe("Coeficientes dos materiais — resistências em MPa", () => {
         "anchorRatioFloor",
         "anchorWeldedBar",
       ]);
-      const raw = JSON.stringify(calculate(legacy), (key, value) =>
-        metadata.has(key)
-          ? undefined
-          : value?.id === "anchorage"
-            ? {
-                ...value,
-                formula:
-                  "lb=max(φfyd/(4fbd);25φ); lb,nec=max(αlb As,calc/As,ef;0,3lb;10φ;100)",
-                detail: value.detail.replace(/α = .*lb = [\d.,]+ mm\./, ""),
-              }
-            : value,
+      const raw = JSON.stringify(
+        withoutAddedDuctility(calculate(legacy)),
+        (key, value) =>
+          metadata.has(key)
+            ? undefined
+            : value?.id === "anchorage"
+              ? {
+                  ...value,
+                  formula:
+                    "lb=max(φfyd/(4fbd);25φ); lb,nec=max(αlb As,calc/As,ef;0,3lb;10φ;100)",
+                  detail: value.detail.replace(/α = .*lb = [\d.,]+ mm\./, ""),
+                }
+              : value,
       );
       expect(createHash("sha256").update(raw).digest("hex")).toBe(expected);
     },
