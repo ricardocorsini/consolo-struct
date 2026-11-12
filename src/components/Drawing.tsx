@@ -11,6 +11,12 @@ import {
   beamBarPositions,
   beamLayout,
 } from "../detailing/beam";
+import { buildDetail } from "../detailing/model";
+import {
+  barPathData,
+  elevationShapes,
+  sectionCrossings,
+} from "../detailing/projection";
 import { number, type Piece, type GeometryKey } from "../domain/model";
 type Props = {
   piece: Piece;
@@ -125,7 +131,49 @@ export default function Drawing({
     () => (beamArrangementActive(p) ? beamLayout(p) : null),
     [p],
   );
+  // Families shared with the fabrication drawing, projected by one module.
+  const detail = useMemo(() => (rebar ? buildDetail(p) : null), [p, rebar]);
+  const shapes = useMemo(
+    () => (detail ? elevationShapes(detail) : []),
+    [detail],
+  );
+  const crossings = useMemo(
+    () => (detail ? sectionCrossings(detail) : []),
+    [detail],
+  );
   const s = Math.min(480 / (g.columnWidth + g.length), 340 / (g.height + 80));
+  const sectionLeft = 400 - (g.width * s) / 2;
+  const stitchRadius = (p.rebar.stitchDiameter * s) / 2;
+  const stitchInset = (depth: number) => {
+    // Erode N3's rounded centerline by the complete N2 symbol and both
+    // half-strokes. This graphical clearance does not change bar levels
+    // or define an additional physical reinforcement spacing rule.
+    const corner = Math.min(
+      8,
+      ((g.width - 2 * g.cover) * s) / 2,
+      ((g.height - 2 * g.cover) * s) / 2,
+    );
+    const clearance = stitchRadius + s / 2 + 2.5 / 2;
+    const edgeDistance =
+      Math.min(depth - g.cover, g.height - g.cover - depth) * s;
+    const innerCorner = Math.max(0, corner - clearance);
+    const cornerInset =
+      corner -
+      Math.sqrt(
+        Math.max(0, innerCorner ** 2 - Math.max(0, corner - edgeDistance) ** 2),
+      );
+    return (
+      g.cover * s +
+      Math.max(
+        (p.rebar.stirrupDiameter + p.rebar.stitchDiameter / 2) * s,
+        clearance,
+        cornerInset,
+      ) +
+      s / 2
+    );
+  };
+  const sectionCentroid = 140 + layout.dPrime * s;
+  const dPrimeLabel = `d’ = ${number(layout.dPrime / 10, 1)} cm`;
   const ox = (800 - (g.columnWidth + g.length) * s) / 2 + g.columnWidth * s,
     oy = 185;
   const X = (x: number) => ox + x * s,
@@ -278,18 +326,34 @@ export default function Drawing({
                     ))}
                   </g>
                 )}
-                <g {...groupProps("N2")}>
+                {crossings.length > 0 && (
+                  <g
+                    className="steel-mounting"
+                    data-testid="mounting-section"
+                    strokeWidth="1"
+                  >
+                    {crossings.map((c, i) => (
+                      <circle
+                        key={i}
+                        cx={sectionLeft + c.lateral * s}
+                        cy={140 + c.depth * s}
+                        r={Math.max(3, (c.bar.diameter * s) / 2)}
+                      />
+                    ))}
+                  </g>
+                )}
+                <g {...groupProps("N2")} strokeWidth={s}>
                   {stitchLevels.map((y, t) => (
                     <g key={t}>
                       <circle
-                        cx={400 - (g.width * s) / 2 + g.cover * s}
+                        cx={sectionLeft + stitchInset(y)}
                         cy={140 + y * s}
-                        r="3"
+                        r={stitchRadius}
                       />
                       <circle
-                        cx={400 + (g.width * s) / 2 - g.cover * s}
+                        cx={sectionLeft + g.width * s - stitchInset(y)}
                         cy={140 + y * s}
-                        r="3"
+                        r={stitchRadius}
                       />
                     </g>
                   ))}
@@ -298,6 +362,36 @@ export default function Drawing({
             )}
             {dimensions && (
               <>
+                <g
+                  className="dimension dimension-derived"
+                  role="img"
+                  aria-label={`${dPrimeLabel} · topo ao centroide do tirante`}
+                >
+                  <title>
+                    Distância do topo ao centroide de todas as barras do tirante
+                  </title>
+                  <path
+                    d={`M${sectionLeft - 40} 140V${sectionCentroid}`}
+                    fill="none"
+                  />
+                  <path
+                    d={`M${sectionLeft - 44} 144l8 -8 M${sectionLeft - 44} ${sectionCentroid + 4}l8 -8`}
+                    fill="none"
+                  />
+                  <g className="dimension-extension" fill="none">
+                    <path
+                      d={`M${sectionLeft} 140H${sectionLeft - 48} M${sectionLeft} ${sectionCentroid}H${sectionLeft - 48}`}
+                    />
+                  </g>
+                  <text
+                    x={sectionLeft - 54}
+                    y={(140 + sectionCentroid) / 2}
+                    textAnchor="end"
+                    dominantBaseline="middle"
+                  >
+                    {dPrimeLabel}
+                  </text>
+                </g>
                 <Dim
                   x1={400 - (g.width * s) / 2}
                   y1={110}
@@ -418,6 +512,44 @@ export default function Drawing({
                           />
                         ))}
                 </g>
+                {shapes.length > 0 && (
+                  <g
+                    className="steel-detail-families"
+                    data-testid="detail-families"
+                    fill="none"
+                    strokeWidth="3"
+                  >
+                    {shapes.map((shape, i) =>
+                      shape.kind === "path" ? (
+                        <path
+                          key={i}
+                          data-family={shape.bar.family}
+                          d={barPathData(shape.path, X, Y, s)}
+                        >
+                          <title>{shape.bar.description}</title>
+                        </path>
+                      ) : shape.kind === "line" ? (
+                        <path
+                          key={i}
+                          data-family={shape.bar.family}
+                          d={`M${X(shape.a.x)} ${Y(shape.a.y)}L${X(shape.b.x)} ${Y(shape.b.y)}`}
+                        >
+                          <title>{shape.bar.description}</title>
+                        </path>
+                      ) : (
+                        <circle
+                          key={i}
+                          data-family={shape.bar.family}
+                          cx={X(shape.center.x)}
+                          cy={Y(shape.center.y)}
+                          r={Math.max(3, (shape.bar.diameter * s) / 2)}
+                        >
+                          <title>{shape.bar.description}</title>
+                        </circle>
+                      ),
+                    )}
+                  </g>
+                )}
                 {beam && (
                   <path
                     className="steel-positive"
