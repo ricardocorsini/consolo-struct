@@ -58,7 +58,7 @@ function MemoryPage({
         <p>
           Consolo simples · {p.geometry.width / 10} × {p.geometry.height / 10}{" "}
           cm · fck {p.materials.fck} MPa · Tirante {steelLabel(p.materials.fyk)}{" "}
-          · Transversal {steelLabel(p.design.fykTransverse)} · Quantidade:{" "}
+          · Transversal {steelLabel(p.materials.fykTransverse)} · Quantidade:{" "}
           {p.quantity}
         </p>
         <p className="table-note">{steelBondDescription(p.materials.fyk)}</p>

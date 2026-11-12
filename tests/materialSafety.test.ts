@@ -16,29 +16,29 @@ import { shortFixture, cantileverFixture } from "./fixtures";
 import { suggestReinforcement } from "../src/domain/autodesign";
 
 describe("Coeficientes dos materiais — resistências em MPa", () => {
-  // Resultados completos capturados antes desta alteração, no upstream 41c3a12.
-  // Excluem-se somente os quatro novos campos de metadados de coeficientes.
+  // Snapshots atualizados para o contrato de materiais do esquema 5 (#35).
+  // Mantém-se a normalização histórica dos metadados e do texto de ancoragem.
   it.each([
     [
       "friction",
       20,
       0.35,
-      "fa3190efa43d06c3db1eed2c520985647cff162750f8cbed81b04c9a23d7e037",
+      "b1c45b15c0b9852f98882316938f29390d19e75b7742778600f3110614c2ae9f",
     ],
     [
       "strut",
       30,
       0.7,
-      "8ca893ef323d153dbe7563e4777e006fc0e6352de74bdbcc80814f92b3b7adde",
+      "8d8a68dfdc4c4aa3ad142066b34381eeb7a25597e3e5f04c2ef307a67138abd6",
     ],
     [
       "beam",
       30,
       0,
-      "cb86344a673ccde3276b853c8424d657aab27c32a582b5bc995cc8494ceca6bf",
+      "2f2c490349a297a50984a17e3b68b4c3d3816a3034bf44b739661a15736cecb5",
     ],
   ] as const)(
-    "mantém o resultado completo anterior para %s com os padrões",
+    "fixa o resultado no esquema 5 para %s com os padrões",
     (method, fck, ratio, expected) => {
       const p = method === "beam" ? cantileverFixture() : shortFixture();
       if (method !== "beam") {
@@ -86,7 +86,7 @@ describe("Coeficientes dos materiais — resistências em MPa", () => {
     expect(standard.fyd).toBeCloseTo(434.7826086956522, 12);
     const reduced = materialProperties(30, 500, 500, 1.3, 1.1);
     expect(reduced.fcd).toBeCloseTo(23.076923076923077, 12);
-    expect(reduced.fyd).toBeCloseTo(454.5454545454545, 12);
+    expect(reduced.fyd).toBe(435);
     expect(reduced.fctd).toBeCloseTo((0.7 * 0.3 * 30 ** (2 / 3)) / 1.3, 12);
     expect(reduced.fydLimited).toBe(435);
     expect(reduced.fywd).toBe(435);
@@ -106,7 +106,7 @@ describe("Coeficientes dos materiais — resistências em MPa", () => {
         v = r.values;
       expect(r.combinations[0].method).toBe(method);
       expect(v.fcd).toBeCloseTo(30 / 1.3, 12);
-      expect(v.fyd).toBeCloseTo(500 / 1.1, 12);
+      expect(v.fyd).toBe(435);
       expect(v.fydLimited).toBe(435);
       expect(v.fywd).toBe(435);
       expect(v.fcd1).toBeCloseTo((0.85 * 0.88 * 30) / 1.3, 12);

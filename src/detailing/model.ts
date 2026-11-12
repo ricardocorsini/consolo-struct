@@ -379,8 +379,14 @@ export function buildDetail(piece: Piece): Detail {
   const bottomAt = (x: number, offset: number) =>
     bottomOffsetDepth(concrete, x, offset);
   if (
-    !stirrupMandrelDefined(steelClassOf(q.fykTransverse), r.stitchDiameter) ||
-    !stirrupMandrelDefined(steelClassOf(q.fykTransverse), r.stirrupDiameter)
+    !stirrupMandrelDefined(
+      steelClassOf(p.materials.fykTransverse),
+      r.stitchDiameter,
+    ) ||
+    !stirrupMandrelDefined(
+      steelClassOf(p.materials.fykTransverse),
+      r.stirrupDiameter,
+    )
   )
     issue(
       "transverse-mandrel",
@@ -410,7 +416,11 @@ export function buildDetail(piece: Piece): Detail {
       const width =
         g.width - 2 * (g.cover + r.stirrupDiameter) - r.stitchDiameter;
       const depth = front + embedment,
-        mandrel = mandrelDiameter(r.stitchDiameter, q.fykTransverse, true);
+        mandrel = mandrelDiameter(
+          r.stitchDiameter,
+          p.materials.fykTransverse,
+          true,
+        );
       if (front < g.cover + r.stitchDiameter / 2)
         issue(
           "horizontal-front",
@@ -429,7 +439,7 @@ export function buildDetail(piece: Piece): Detail {
         description:
           family === "stitch" ? "Costura superior" : "Costura inferior",
         diameter: r.stitchDiameter,
-        grade: q.fykTransverse,
+        grade: p.materials.fykTransverse,
         quantity: 1,
         path: closedStirrup(depth, width, r.stitchDiameter, mandrel),
         mandrel,
@@ -468,7 +478,7 @@ export function buildDetail(piece: Piece): Detail {
   const lowerEnd = bottomAt(
     g.cover +
       r.stitchDiameter / 2 +
-      (mandrelDiameter(r.stitchDiameter, q.fykTransverse, true) +
+      (mandrelDiameter(r.stitchDiameter, p.materials.fykTransverse, true) +
         r.stitchDiameter) /
         2,
     g.cover + r.stitchDiameter / 2,
@@ -489,12 +499,16 @@ export function buildDetail(piece: Piece): Detail {
   for (const x of stirrupPositions) {
     const width = g.width - 2 * transverseOffset,
       height = bottomAt(x, transverseOffset) - transverseOffset;
-    const mandrel = mandrelDiameter(r.stirrupDiameter, q.fykTransverse, true);
+    const mandrel = mandrelDiameter(
+      r.stirrupDiameter,
+      p.materials.fykTransverse,
+      true,
+    );
     add({
       family: "stirrup",
       description: "Estribo vertical",
       diameter: r.stirrupDiameter,
-      grade: q.fykTransverse,
+      grade: p.materials.fykTransverse,
       quantity: 1,
       path: closedStirrup(width, height, r.stirrupDiameter, mandrel),
       mandrel,
@@ -563,7 +577,7 @@ export function buildDetail(piece: Piece): Detail {
     const end = g.length - g.cover - s.mountingDiameter / 2;
     const off = g.cover + r.stirrupDiameter + s.mountingDiameter / 2;
     const nominalRadius =
-      mandrelDiameter(s.mountingDiameter, q.fykTransverse) / 2 +
+      mandrelDiameter(s.mountingDiameter, p.materials.fykTransverse) / 2 +
       s.mountingDiameter / 2;
     // Intersect the parallel inset faces, rather than offsetting at each
     // original x: that chord/fillet can enter the cover zone near a cut vertex.
@@ -599,13 +613,13 @@ export function buildDetail(piece: Piece): Detail {
       family: "mounting",
       description: "Porta-estribos inferior",
       diameter: s.mountingDiameter,
-      grade: q.fykTransverse,
+      grade: p.materials.fykTransverse,
       quantity: 2,
       path,
       mandrel:
         concrete.status === "removed"
           ? 2 * radius - s.mountingDiameter
-          : mandrelDiameter(s.mountingDiameter, q.fykTransverse),
+          : mandrelDiameter(s.mountingDiameter, p.materials.fykTransverse),
       width: end + back,
       height: g.height - g.tipHeight,
       hookTail: 0,

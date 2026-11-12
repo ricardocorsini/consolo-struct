@@ -2,7 +2,6 @@ import { NumericField } from "./NumericField";
 import StrutLimitControl from "./StrutLimitControl";
 import MaterialSafetyControl from "./MaterialSafetyControl";
 import { coefficientText } from "../domain/materialSafety";
-import { fykOf, steelOptionLabel } from "../domain/steel";
 import type { Piece } from "../domain/model";
 import type { DesignSettings } from "../domain/design";
 
@@ -195,25 +194,6 @@ export default function DesignPanel({
         {num("aggregate", "Dimensão máxima do agregado", "mm", 1, 4, 50)}
         {num("tieLayers", "Camadas do tirante", "camadas", 1, 1, 4)}
         {num("extraTopCover", "Afastamento adicional do tirante", "mm")}
-        <label className="field steel-class-field">
-          <span className="field-label">Aço da costura e estribos</span>
-          <select
-            value={q.fykTransverse}
-            onChange={(e) =>
-              set("fykTransverse", Number(e.target.value) as 500 | 600)
-            }
-          >
-            {(["CA-50", "CA-60"] as const).map((steel) => (
-              <option key={steel} value={fykOf(steel)}>
-                {steelOptionLabel(steel)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <small>
-          A resistência de cálculo das armaduras é limitada conforme o modelo;
-          fywd ≤ 435 MPa.
-        </small>
       </details>
       <details>
         <summary>Ancoragem na frente</summary>

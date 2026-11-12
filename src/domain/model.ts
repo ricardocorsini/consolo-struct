@@ -34,7 +34,11 @@ export const pieceSchema = z.object({
   }),
   materials: z.object({
     fck: z.number().min(20).max(90),
+    // Numeric legacy values remain serializable; the engine restricts tie eligibility.
     fyk: z.number().min(250).max(600),
+    fykTransverse: z
+      .union([z.literal(250), z.literal(500), z.literal(600)])
+      .default(500),
   }),
   rebar: rebarSchema,
   design: designSchema,
@@ -42,7 +46,7 @@ export const pieceSchema = z.object({
 });
 export const projectSchema = z.object({
   format: z.literal("lumeconsolo"),
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   name: z.string().min(1).max(120),
   client: z.string().max(120),
   author: z.string().max(120),
@@ -126,7 +130,7 @@ export function newPiece(index: number): Piece {
       columnWidth: 300,
     },
     loads: { vertical: 350000, horizontal: 40000, gamma: 1.4 },
-    materials: { fck: 30, fyk: 500 },
+    materials: { fck: 30, fyk: 500, fykTransverse: 500 },
     design: defaultDesign(),
     detailing: defaultDetailing(),
     rebar: {
@@ -159,7 +163,7 @@ export function exampleProject(): Project {
   second.rebar.tieDiameter = 16;
   return {
     format: "lumeconsolo",
-    schemaVersion: 4,
+    schemaVersion: 5,
     name: "Pavilhão Horizonte",
     client: "Projeto de demonstração",
     author: "",
@@ -174,6 +178,52 @@ export function decodeProject(text: string): Project {
     data = JSON.parse(text);
   } catch {
     throw new Error("O arquivo não contém um JSON válido.");
+  }
+  // Move the legacy steel before the v1 design reset so its chosen value survives.
+  if (
+    data &&
+    typeof data === "object" &&
+    "schemaVersion" in data &&
+    [1, 2, 3, 4].includes(Number(data.schemaVersion)) &&
+    "pieces" in data &&
+    Array.isArray(data.pieces)
+  ) {
+    data = {
+      ...data,
+      pieces: data.pieces.map((p: unknown) => {
+        if (
+          !p ||
+          typeof p !== "object" ||
+          !("materials" in p) ||
+          !p.materials ||
+          typeof p.materials !== "object"
+        )
+          return p;
+        const design =
+          "design" in p && p.design && typeof p.design === "object"
+            ? p.design
+            : undefined;
+        const secondary =
+          design && "fykTransverse" in design
+            ? design.fykTransverse
+            : "fykTransverse" in p.materials
+              ? p.materials.fykTransverse
+              : 500;
+        return {
+          ...p,
+          materials: { ...p.materials, fykTransverse: secondary },
+          ...(design
+            ? {
+                design: Object.fromEntries(
+                  Object.entries(design).filter(
+                    ([key]) => key !== "fykTransverse",
+                  ),
+                ),
+              }
+            : {}),
+        };
+      }),
+    };
   }
   // Version 1 carried illustrative bars only. New engineering data must be reviewed.
   if (
@@ -230,10 +280,17 @@ export function decodeProject(text: string): Project {
   ) {
     data = { ...data, schemaVersion: 4 };
   }
+  if (
+    data &&
+    typeof data === "object" &&
+    "schemaVersion" in data &&
+    data.schemaVersion === 4
+  )
+    data = { ...data, schemaVersion: 5 };
   const parsed = projectSchema.safeParse(data);
   if (!parsed.success)
     throw new Error(
-      "Projeto inválido ou versão não suportada. Use um arquivo .lume.json compatível (esquemas 1, 2, 3 ou 4).",
+      "Projeto inválido ou versão não suportada. Use um arquivo .lume.json compatível (esquemas 1, 2, 3, 4 ou 5).",
     );
   return parsed.data;
 }

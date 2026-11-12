@@ -30,7 +30,7 @@ A busca não é otimizador executivo: não muda seção, aparelhos, diâmetro in
 
 ## Dados e extensão
 
-Projetos em esquema 2. Esquema 1 migra com parâmetros não conferidos. Resultados não são restaurados do projeto como se fossem atuais. `.calc.json` é uma saída distinta, com todas as entradas e resultados; pode ser usada por auditoria externa.
+Projetos no esquema 5, com migração dos esquemas 1–4. O aço secundário passa de `design.fykTransverse` para `materials.fykTransverse`; tirante legado CA-60 é preservado no arquivo e bloqueado no motor. Esquema 1 migra com parâmetros não conferidos. Resultados não são restaurados do projeto como se fossem atuais. `.calc.json` é uma saída distinta, com todas as entradas e resultados; pode ser usada por auditoria externa.
 
 Para acrescentar um modelo, inclua critérios, domínio, razões de bloqueio, memória e casos independentes antes de habilitá-lo na interface. Dentes Gerber exigem tipo próprio e modelo próprio; não basta inverter o desenho do consolo. ELS exige combinações de serviço e dados adicionais; não reutilizar ações ELU por conveniência.
 

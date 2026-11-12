@@ -28,7 +28,7 @@ const comparable = (d: Detail) =>
   JSON.stringify({ ...d, result: undefined, piece: undefined });
 
 describe("Armado como viga — disponibilidade e compatibilidade", () => {
-  it("vem desligado e projetos antigos abrem no modo atual, sem migração", () => {
+  it("vem desligado e projetos antigos abrem no modo atual, após migração", () => {
     const project = exampleProject();
     const legacy = JSON.parse(JSON.stringify(project));
     for (const p of legacy.pieces) {
@@ -37,7 +37,7 @@ describe("Armado como viga — disponibilidade e compatibilidade", () => {
       delete p.detailing.beamBottomDiameter;
     }
     const decoded = decodeProject(JSON.stringify(legacy));
-    expect(decoded.schemaVersion).toBe(4);
+    expect(decoded.schemaVersion).toBe(5);
     for (const p of decoded.pieces) {
       expect(p.detailing.barArrangement).toBe("consolo");
       expect(p.detailing.beamBottomCount).toBe(2);

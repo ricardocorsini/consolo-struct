@@ -158,11 +158,14 @@ describe("Ações, materiais e consistência", () => {
     );
     expect(v.required).toBeGreaterThanOrEqual(180);
   });
-  it("CA-60 não recebe automaticamente eta1=2,25 de CA-50", () => {
+  it("preserva CA-60 legado no tirante, mas interrompe o cálculo", () => {
     const p = shortFixture();
-    const a = calculate(p).values.fbd;
     p.materials.fyk = 600;
-    expect(calculate(p).values.fbd).toBeCloseTo(a / 2.25, 10);
+    const result = calculate(p);
+    expect(result.status).toBe("unsupported");
+    expect(result.values).toEqual({});
+    expect(result.combinations).toEqual([]);
+    expect(p.materials.fyk).toBe(600);
   });
   it("calcula d pelo centroide ponderado das camadas", () => {
     const p = newPiece(1);
@@ -328,7 +331,7 @@ describe("Limites, combinações e rastreabilidade", () => {
       }),
     };
     const restored = decodeProject(JSON.stringify(old));
-    expect(restored.schemaVersion).toBe(4);
+    expect(restored.schemaVersion).toBe(5);
     expect(restored.pieces[0].design.inputsConfirmed).toBe(false);
   });
   it("os resultados são determinísticos e não alteram a entrada", () => {
@@ -720,7 +723,7 @@ describe("Ancoragem no suporte: α e piso da razão (issue #12)", () => {
   // Reference: fck 30, CA-50, φ20, má aderência, As,ef = 4 Ø20.
   const anchorFixture = () => {
     const p = shortFixture();
-    p.materials = { fck: 30, fyk: 500 };
+    p.materials = { fck: 30, fyk: 500, fykTransverse: 500 };
     p.rebar.tieCount = 4;
     p.rebar.tieDiameter = 20;
     p.design.bond = "poor";
@@ -829,7 +832,7 @@ describe("Ancoragem no suporte: α e piso da razão (issue #12)", () => {
     expect(file).not.toContain("supportWeldedBar");
     expect(file).not.toContain("anchorRatioFloor");
     const restored = decodeProject(file);
-    expect(restored.schemaVersion).toBe(4);
+    expect(restored.schemaVersion).toBe(5);
     const explicit = decodeProject(file);
     for (const piece of explicit.pieces) {
       piece.design.supportWeldedBar = false;

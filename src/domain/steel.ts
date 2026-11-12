@@ -1,4 +1,6 @@
 export const steelClasses = ["CA-25", "CA-50", "CA-60"] as const;
+export const tieSteelClasses = ["CA-25", "CA-50"] as const;
+export const secondarySteelClasses = steelClasses;
 export type SteelClass = (typeof steelClasses)[number];
 
 const properties = {
@@ -14,6 +16,11 @@ const classesByFyk = new Map<number, SteelClass>(
 );
 export const steelClassOf = (fyk: number): SteelClass | undefined =>
   classesByFyk.get(fyk);
+/** CA-60 metadata remains available for secondary steel and legacy previews. */
+export function tieSteelClassOf(fyk: number) {
+  const steel = steelClassOf(fyk);
+  return steel === "CA-25" || steel === "CA-50" ? steel : undefined;
+}
 export const fykOf = (steel: SteelClass) => properties[steel].fyk;
 export const bondCoefficientEta1 = (steel: SteelClass) =>
   properties[steel].eta1;

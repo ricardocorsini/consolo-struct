@@ -82,7 +82,6 @@ export const designSchema = z.object({
   splittingDiameter: diameter,
   suspensionCount: z.number().int().min(0).max(100),
   suspensionDiameter: diameter,
-  fykTransverse: z.union([z.literal(500), z.literal(600)]),
   inputsConfirmed: z.boolean(),
   combinations: z
     .array(
@@ -157,7 +156,6 @@ export function defaultDesign(
     splittingDiameter: 6.3,
     suspensionCount: 0,
     suspensionDiameter: 10,
-    fykTransverse: 500,
     inputsConfirmed: false,
     combinations: [],
   };

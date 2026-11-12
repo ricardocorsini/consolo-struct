@@ -303,7 +303,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
     `fck=${p.materials.fck} MPa; fyk=${p.materials.fyk} MPa. N1=${p.rebar.tieCount} ramos phi ${p.rebar.tieDiameter}; N2=${p.rebar.stitchCount} estribos phi ${p.rebar.stitchDiameter}; N3=${p.rebar.stirrupCount} estribos phi ${p.rebar.stirrupDiameter}.`,
   );
   line(
-    `Tirante: ${steelLabel(p.materials.fyk)}; transversal: ${steelLabel(p.design.fykTransverse)}.`,
+    `Tirante: ${steelLabel(p.materials.fyk)}; transversal: ${steelLabel(p.materials.fykTransverse)}.`,
   );
   line(steelBondDescription(p.materials.fyk));
   line(
@@ -344,7 +344,8 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
         ["gamma c referencia da producao", v.gammaCReference, ""],
         ["gamma s referencia da producao", v.gammaSReference, ""],
         ["fcd", v.fcd, "MPa"],
-        ["fyd adotado", v.fydLimited, "MPa"],
+        ["fyd adotado do tirante e da ancoragem", v.fydLimited, "MPa"],
+        ["fywd adotado da costura e estribos", v.fywd, "MPa"],
         ["d", v.d, "mm"],
         ["d'", v.dPrime, "mm"],
         ["a/d", v.ratio, ""],
@@ -421,7 +422,8 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       ["gamma c referencia da producao", v.gammaCReference, ""],
       ["gamma s referencia da producao", v.gammaSReference, ""],
       ["fcd", v.fcd, "MPa"],
-      ["fyd adotado", v.fydLimited, "MPa"],
+      ["fyd adotado do tirante e da ancoragem", v.fydLimited, "MPa"],
+      ["fywd adotado da costura e estribos", v.fywd, "MPa"],
       ["d", v.d, "mm"],
       ["d'", v.dPrime, "mm"],
       ["a/d", v.ratio, ""],

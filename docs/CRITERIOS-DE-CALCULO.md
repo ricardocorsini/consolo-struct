@@ -4,7 +4,7 @@ A revisão 0.7 acrescenta a política complementar e a reação deslocada descri
 
 ## Complementos El Debs e reação deslocada
 
-Trecho §3.5.1, pp.125–130: com a opção ativa, H estimado recebe piso 0,20V (H de análise é preservado e verificado), h2≥h/2, costura≥0,5Va/(0,9d fy), estribos verticais≥0,2As,tirante. Em 0,4≤a/d≤1, As do tirante recebe também o equilíbrio completo de El Debs e verificam-se τ≤0,20fcd e a biela simplificada com z=0,9d, hbie=0,2d e β=1/0,85. Mantém-se o termo Hdh. Esses complementos não substituem exigências normativas. Peças novas ativam a opção; arquivos anteriores sem esse campo a importam desativada.
+Trecho §3.5.1, pp.125–130: com a opção ativa, H estimado recebe piso 0,20V (H de análise é preservado e verificado), h2≥h/2, costura≥0,5Va/(0,9d fywd), estribos verticais≥0,2As,tirante. Em 0,4≤a/d≤1, As do tirante recebe também o equilíbrio completo de El Debs e verificam-se τ≤0,20fcd e a biela simplificada com z=0,9d, hbie=0,2d e β=1/0,85. Mantém-se o termo Hdh. Esses complementos não substituem exigências normativas. Peças novas ativam a opção; arquivos anteriores sem esse campo a importam desativada.
 
 A cota geométrica a é o centro do aparelho. A posição de cálculo a_calc pode ser deslocada para fora em c_ap/6 ou envelopada por max(a;0,75L). A excentricidade total é Δa+Hh_ap/V e precisa permanecer no núcleo c_ap/6 para contato integral. Na abertura geométrica usa-se c_eff=c_ap−2|Δa|, subárea conservadora contida no aparelho; a2 continua medido até sua borda física. O novo a_calc governa classificação e equilíbrio.
 
@@ -100,27 +100,28 @@ Cada combinação conserva seu par simultâneo V/H. O envelope é feito **separa
 
 ## Materiais
 
-### Classes de aço do tirante
+### Classes de aço do tirante e das secundárias
 
-As classes e suas regras estão centralizadas em `src/domain/steel.ts`. O seletor **Modelo > Materiais > Classe de aço do tirante** oferece:
+As classes e suas regras estão centralizadas em `src/domain/steel.ts`. Em **Modelo > Materiais**, o grupo **CONCRETO** contém Fck; **AÇO DAS ARMADURAS** contém os dois seletores por peça:
 
-| Classe | fyk (MPa) | η1 da aderência                    |
-| ------ | --------- | ---------------------------------- |
-| CA-25  | 250       | 1,00                               |
-| CA-50  | 500       | 2,25                               |
-| CA-60  | 600       | 1,00 — **pendente de confirmação** |
+| Campo                     | Classes permitidas                                | Persistência                       | Padrão  |
+| ------------------------- | ------------------------------------------------- | ---------------------------------- | ------- |
+| Aço do tirante            | CA-25 (250 MPa), CA-50 (500 MPa)                  | `materials.fyk` numérico           | 500 MPa |
+| Aço da costura e estribos | CA-25 (250 MPa), CA-50 (500 MPa), CA-60 (600 MPa) | `materials.fykTransverse` numérico | 500 MPa |
 
-Os valores de η1 são os existentes, preservados exatamente conforme a [issue #3](https://github.com/ricardocorsini/consolo-struct/issues/3). Para CA-60, o valor conservador 1,00 aguarda decisão do mantenedor/engenheiro responsável sobre a superfície do fio/barra; esta contribuição não resolve essa decisão nem afirma confirmação normativa. Não se transfere automaticamente η1 = 2,25 de CA-50 para CA-60. Referências para consulta: NBR 6118:2026 §§8.3 e 9.3.2.
+O aço secundário também rege as verificações de suspensão, fendilhamento e confinamento. As parcelas de costura N2 obtidas por força usam `fywd`; mínimos definidos por área, como 0,4As,tir e 0,0015bh, permanecem iguais. No modelo de viga, os estribos resistentes usam `fywd`, enquanto o mínimo que depende de fywk continua usando o valor característico secundário. Nenhuma bitola, arranjo ou regra geométrica foi alterada.
 
-O mesmo módulo concentra os fatores de pino da alça, a exigência de gancho de CA-25 e os limites de aplicabilidade de dobramento de CA-60. As fórmulas e bitolas permanecem iguais. A resistência de cálculo continua usando o fyk numérico e os coeficientes dos materiais já adotados. O aço transversal conserva o esquema 500/600 MPa, apresentado pelos mesmos rótulos CA-50/CA-60.
+O esquema **5** migra os esquemas 1–4: move `design.fykTransverse` para `materials.fykTransverse` e remove o campo antigo. O valor secundário é preservado antes da reposição dos parâmetros ilustrativos do esquema 1; se ausente, recebe 500 MPa. A abertura de arquivo entra no histórico existente, limpa resultados anteriores e pode ser desfeita/refeita; todas as edições posteriores também participam do histórico. Não se retorna ao contrato antigo dentro do histórico: os projetos abertos ficam normalizados no esquema 5.
 
-A classe é derivada da leitura de `materials.fyk`, que permanece **numérico** no arquivo; não se grava um novo campo nem se altera o esquema 4. Um valor legado como 420 MPa abre e permanece 420 MPa ao salvar. O seletor mostra **Personalizado (420 MPa), não suportado**, e o motor mantém a mensagem e o estado `unsupported`. A escolha de uma classe válida é explícita e participa de Desfazer/Refazer. Não há arredondamento ou enquadramento automático por faixa.
+Um tirante legado de 600 MPa permanece numérico e serializável, mas aparece como **CA-60 · legado, não suportado no tirante**; o motor interrompe o cálculo como `unsupported`, sem resistências ou combinações dimensionadas. Valores personalizados como 420 MPa também permanecem preservados e não suportados. A troca para CA-25/CA-50 exige escolha explícita; não há conversão por faixa ou arredondamento. A assinatura de cálculo inclui os dois materiais e invalida resultados de entradas diferentes.
 
-Relatório, PDF, desenhos e quadro de aço usam os rótulos do módulo, sem inventar classes como CA-42 para valores personalizados. A prévia geométrica de mandris de valores legados mantém seu comportamento histórico, sem atribuir uma classe nem tornar o aço calculável. Essa compatibilidade de desenho não valida a ancoragem; o detalhamento continua sinalizando o cálculo fora do escopo.
+η1 do tirante permanece 1,00 para CA-25 e 2,25 para CA-50. Os metadados históricos do CA-60 (η1 = 1,00, pendente de confirmação quanto à superfície), fatores de pino, gancho de CA-25 e limites de dobramento continuam disponíveis para secundárias e prévias legadas, conforme a issue #3; não habilitam o dimensionamento de um tirante CA-60. Referências para consulta: NBR 6118:2026 §§8.3 e 9.3.2.
+
+Relatório, PDF, desenhos e quadro de aço usam os rótulos centralizados. A prévia geométrica de um material legado não valida o cálculo nem elimina as pendências do detalhamento.
 
 ### Coeficientes dos materiais
 
-Combinação normal: padrões γc = 1,40 e γs = 1,15. Ambos são editáveis **por peça**, entre 1,0 e 2,0, em Cálculo ou em **Configurações > Dimensionamento > Coeficientes dos materiais da peça selecionada**. Projetos antigos recebem os padrões ao abrir, sem mudança de `schemaVersion` (4). Alterar o processo de produção não preenche nem reduz coeficientes automaticamente.
+Combinação normal: padrões γc = 1,40 e γs = 1,15. Ambos são editáveis **por peça**, entre 1,0 e 2,0, em Cálculo ou em **Configurações > Dimensionamento > Coeficientes dos materiais da peça selecionada**. Projetos antigos sem coeficientes recebem os padrões ao abrir; a migração dos aços para o esquema 5 é descrita acima. Alterar o processo de produção não preenche nem reduz coeficientes automaticamente.
 
 Pares de referência adotados exatamente como informados na [issue #2](https://github.com/ricardocorsini/consolo-struct/issues/2), sem acesso aos textos normativos nesta contribuição:
 
@@ -134,13 +135,19 @@ A redução para pré-fabricados é tratada como **permissão** da NBR 9062:2017
 
 Cada coeficiente adotado abaixo da referência de produção é listado, com valor adotado e referência, numa verificação `materialSafety` com estado **review**. A edição não é bloqueada por esse motivo. Igualdade ou valores superiores não geram essa pendência. Uma falha em outra verificação ainda pode determinar o estado geral `fail`; o aviso individual continua `review`. Adotados e referências ficam registrados na memória, PDF e cálculo auditável. As notas de detalhamento registram valores alterados e eventuais pendências, preservando os desenhos padrão.
 
-`fcd = fck/γc`; `fyd = fyk/γs`; `αv2 = 1−fck/250`.
+`fcd = fck/γc`; `αv2 = 1−fck/250`.
 
-Também se usam os coeficientes adotados em `fctd = 0,7 fctm/γc`, na ancoragem, e em `fywd = min(fywk/γs; 435 MPa)`. A armadura mínima por flexão recebe os mesmos γc e γs. Permanecem os tetos de 435 MPa de `fydLimited` e `fywd`, sem alteração das demais fórmulas ou constantes.
+Conforme a decisão confirmada na [issue #35](https://github.com/ricardocorsini/consolo-struct/issues/35), as resistências adotadas são:
 
-Para C30/CA-50, 1,40/1,15 produz `fcd = 21,4285714286 MPa` e `fyd = 434,7826086957 MPa`; 1,30/1,10 produz `fcd = 23,0769230769 MPa` e `fyd = 454,5454545455 MPa`. Neste segundo caso o tirante usa **435 MPa** pelo teto existente; a variação da armadura não é necessariamente a estimativa de 4,3% da issue. Unidades internas permanecem mm, N e MPa, sem arredondamento intermediário. γf, γn, combinações e classes de aço não são alterados por esta configuração.
+- `fyd = fydLimited = min(materials.fyk/γs; 435 MPa)` para tirante, armadura mínima por flexão e ancoragem;
+- `fywd = min(materials.fykTransverse/γs; 435 MPa)` para secundárias;
+- `lb = max(φ fyd/(4 fbd); 25φ)`, com o mesmo fyd limitado, sem arredondamento intermediário.
 
-Para os modelos de consolo adota-se conservadoramente `fy = min(fyd; 435 MPa)`, conforme recomendação do trecho de El Debs. Para costura e suspensão, o limite 435 MPa também é explícito na 9062. A ancoragem usa fyd do material, sem reduzir artificialmente a força de escoamento.
+`fydLimited` permanece como alias de compatibilidade da resistência adotada. `fyd` já contém o teto; não representa mais um quociente sem limitação. Também se aplicam os coeficientes em `fctd = 0,7 fctm/γc`. O confinamento usa fyd limitado no numerador e fywd secundário no denominador; as demais fórmulas de ancoragem, fatores α, pisos e decisões sobre solda permanecem iguais. Memória/PDF identificam o fyd usado na ancoragem e o fywd das secundárias; a auditoria registra ambos.
+
+Para C30/CA-50, 1,40/1,15 produz `fcd = 21,4285714286 MPa` e `fyd = 434,7826086957 MPa`. Com 1,30/1,10, `fcd = 23,0769230769 MPa` e **fyd = 435 MPa**, inclusive em lb. CA-25 com γs = 1,15 usa 217,3913043478 MPa; CA-60 secundário usa exatamente 435 MPa. Projetos padrão com ambos os aços CA-50 e γs = 1,15 mantêm os resultados pela migração.
+
+O teto e sua aplicação à ancoragem seguem a decisão do usuário registrada na issue #35, que cita NBR 6118:2026 §§9.4, 17.4.1.1, 22.3 e 22.4/22.4.1 e NBR 9062:2017 §7.3. Os textos normativos não estavam disponíveis no repositório para conferência; esta implementação não afirma uma verificação independente dessas referências. Unidades internas: mm, N, MPa. Não se alteram γf, γn ou combinações. Consulte [a validação e os exemplos reproduzíveis](VALIDACAO-ACO-SEPARADO.md).
 
 Resistências de bielas/nós da 6118 §22.3.2:
 
@@ -167,7 +174,7 @@ Não há arredondamento intermediário; os números da tabela foram arredondados
 
 **Apenas o limite de `strut`, no modelo de bielas e tirantes, muda.** Sua tensão solicitante e geometria não mudam. Nós (`nodeSupport`), apoio (`bearing`), escoamento prévio (`ductility`, ainda calculado com fcd2/fcd3/fcd1 originais), inclinação (`angleMin`) e verificações complementares de El Debs mantêm seus valores. Atrito-cisalhamento e viga em balanço não usam esse limite: uma escolha compatível com a carga fica registrada, mas não altera as verificações desses modelos nem acrescenta uma conferência de biela que não foi aplicada.
 
-Quando uma alternativa é aplicada à biela, a verificação adicional `strutLimitCriterion` tem estado **`review`**, com o critério, o limite escolhido e o limite do padrão em MPa. Essa conferência não aprova nem reprova por si só; uma falha de outra verificação continua sendo falha. Mesmo que `strut` passe com o limite menos conservador, a pendência `review` permanece, inclusive na sugestão de armaduras. Memória, relatório, PDF e cálculo auditável registram a fórmula escolhida e essa pendência. O campo é salvo no esquema **4**, sem mudança de `schemaVersion`.
+Quando uma alternativa é aplicada à biela, a verificação adicional `strutLimitCriterion` tem estado **`review`**, com o critério, o limite escolhido e o limite do padrão em MPa. Essa conferência não aprova nem reprova por si só; uma falha de outra verificação continua sendo falha. Mesmo que `strut` passe com o limite menos conservador, a pendência `review` permanece, inclusive na sugestão de armaduras. Memória, relatório, PDF e cálculo auditável registram a fórmula escolhida e essa pendência. O campo é salvo no esquema atual **5**; a migração preserva seu valor.
 
 As referências informadas para as alternativas são as indicadas na issue #5 do repositório: NBR 6118 §22.3.2 (`fcd3`) e NBR 9062:2017 §7.3.4.1, alíneas b (`indirect085`) e a (`direct100`). **Essas indicações não foram conferidas no texto normativo nesta contribuição.** Não se afirma equivalência ou aplicabilidade normativa das alternativas; elas exigem avaliação do responsável técnico. Não foram reproduzidos textos de normas.
 
@@ -266,7 +273,7 @@ Referências **citadas no GN Corbel e ainda não conferidas** nos textos da ABNT
 - `Vc = 0` para `a/d > 1`; Msd com `h_ap` no braço de Hd (composição conservadora).
 - Pele de 0,10 % b h por face acima de 600 mm; costura abaixo de 600 mm com k = 0,4 sobre a armadura necessária do tirante.
 - Manutenção do piso `H ≥ 0,20 V` de El Debs nesta faixa.
-- `fy` limitado a 435 MPa na flexão; o GN Corbel usa `fyd` sem teto, o que só difere para CA-60.
+- `fy` limitado a 435 MPa na flexão; o GN Corbel usa `fyd` sem teto. A diferença aparece quando fyk/γs ultrapassa 435 MPa (por exemplo, CA-50 com γs = 1,10). CA-60 não é calculável como tirante neste programa.
 - Junta de concretagem não monolítica com `a/d > 0,5` em modo automático continua interrompida.
 
 Os casos de referência A, B e C da issue #6 foram reproduzidos executando o motor, com diferença relativa máxima de 4,3×10⁻⁵ (arredondamento dos valores manuais), e estão fixados em `tests/engine.test.ts`.
@@ -295,7 +302,7 @@ Esse modelo não resolve excentricidade transversal, fendilhamento no plano hori
 
 ## Armaduras secundárias
 
-Para a costura, define-se Asv pela parcela vertical do modelo conservador. No modelo bielas, o programa conserva ainda o efeito amplificador da excentricidade de H ao subtrair somente Hd de T; isso é conservador em relação à parcela estritamente vertical.
+Para a costura, define-se Asv dividindo a parcela vertical do modelo conservador por `fywd` do aço secundário limitado. No modelo bielas, o programa conserva ainda o efeito amplificador da excentricidade de H ao subtrair somente Hd de T; isso é conservador em relação à parcela estritamente vertical.
 
 Altura da zona superior: `z_cost=2d/3`.
 
@@ -312,7 +319,7 @@ Para ação direta, N3 ≥ 0,0015bh. Para ação indireta, N5 ≥ Vd/fywd e não
 ## Ancoragens e geometria
 
 - Ancoragem do tirante no suporte: fbd = η1 η2 η3 fctd, conforme §§8.3 e 9.3.2. Má aderência usa η2=0,7; boa aderência precisa ser justificada.
-- `lb = max(φ fyd/(4fbd); 25φ)`.
+- `lb = max(φ fyd/(4fbd); 25φ)`, com `fyd = min(materials.fyk/γs; 435 MPa)`.
 - `lb,nec = max(α · lb · razão; 0,3lb; 10φ; 100 mm)`, com `razão = As,req/As,ef`. A opção conservadora **Limitar a razão As,req/As,ef ao mínimo de 1,0** (`anchorRatioFloor`, desligada por padrão) usa `razão = max(1,0; As,req/As,ef)`. A norma não exige esse piso; com a opção desligada o resultado é o anterior. Os pisos `0,3lb`, `10φ` e `100 mm` não mudam.
 - Coeficiente α (NBR 6118 §9.4.2.5). "Gancho" significa gancho com cobrimento normal ao plano do gancho ≥ 3φ:
 
@@ -327,7 +334,7 @@ Para ação direta, N3 ≥ 0,0015bh. Para ação indireta, N5 ≥ Vd/fywd e não
   O valor 0,5 vale somente para gancho + barra soldada; barra soldada sozinha é 0,7.
 
 - A barra transversal soldada (`supportWeldedBar`, desligada por padrão) é uma declaração do usuário (§9.4.2.2). O programa não verifica diâmetro, posição nem execução dessa barra e, quando ela é declarada, gera a pendência **Barra transversal soldada na ancoragem** com estado "conferir". Ela não se confunde com a barra transversal soldada da extremidade frontal (`frontAnchor`).
-- A verificação de ancoragem, a memória, o PDF e o cálculo auditável registram α, a razão usada (com ou sem o piso 1,0) e `lb`. Projetos sem os dois campos abrem com ambos desligados, sem mudança de `schemaVersion` (4).
+- A verificação de ancoragem, a memória, o PDF e o cálculo auditável registram α, a razão usada (com ou sem o piso 1,0) e `lb`. Projetos sem os dois campos abrem com ambos desligados, inclusive após a migração dos materiais para o esquema 5.
 - O percurso real do gancho permanece pendente, pois a geometria integral do suporte não é definida.
 - Armadura de confinamento na ancoragem, para as bitolas admitidas no consolo: capacidade ≥25% da força de uma barra (§9.4.2.6.1).
 - Armadura local na face do suporte ≥área efetiva do tirante (§7.3.3.14). Não é dimensionamento do pilar.
@@ -373,7 +380,7 @@ Permanecem externos: ELS e fissuração; dentes Gerber; consolos duplos, contín
 
 ## Arquivos e auditoria
 
-- `.lume.json`, esquema 2: entradas editáveis. Importa esquema 1 com dados novos não conferidos. Quantidades antigas eram ilustrativas e precisam ser revistas, especialmente a contagem de estribos.
+- `.consolo.json` (e extensão legada `.lume.json`): entradas editáveis no esquema 5; migra esquemas 1–4. O esquema 1 recebe parâmetros de cálculo não conferidos. Quantidades antigas eram ilustrativas e precisam ser revistas, especialmente a contagem de estribos.
 - `.calc.json`: snapshot completo das entradas, unidades, versão, política, todas as combinações, resultados intermediários e verificações. Não é um projeto editável e não é tratado como resultado confiável ao importar `.lume.json`.
 - PDF: entradas, hipóteses, referências, envelope, memória de cada combinação e apêndice integral de entradas; usa transliteração dos símbolos para evitar caracteres gregos quebrados no PDF.
 - CSV: quantidades e resumo de ELU recalculado. Não é lista de corte.

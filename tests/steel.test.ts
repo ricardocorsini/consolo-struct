@@ -82,7 +82,7 @@ describe("Classes de aço e regras centralizadas", () => {
   });
 });
 
-describe("Regressão capturada no upstream e903617, antes da integração de classes", () => {
+describe("Regressão de aderência/ancoragem e snapshot no esquema 5 — classes calculáveis", () => {
   it.each([
     [
       250,
@@ -90,7 +90,7 @@ describe("Regressão capturada no upstream e903617, antes da integração de cla
       1072.1989323512282,
       751.4420173462395,
       100,
-      "670f1ed3b4fa00fb2f785260aa490608dbe27f796bfde5159865f19c473220b6",
+      "1770f70e1f225701f893ece62e1dbfb8b11de12c2e18f229cdcad3fa49a90692",
     ],
     [
       500,
@@ -98,25 +98,17 @@ describe("Regressão capturada no upstream e903617, antes da integração de cla
       953.0657176455362,
       333.974229931662,
       160,
-      "b8af3f1276ca2bac1dce5924c04fd13e7aacc2d194db22725bf7cc58a58d699a",
-    ],
-    [
-      600,
-      1.013763853835911,
-      2573.277437642948,
-      771.9832312928844,
-      120,
-      "deee9d8fcfd3fc553e8e6bca3dcb61a6174c9148f12d4db18fd6c92781366adb",
+      "08ced5c56f1c7af0bc17753c26780c4630192e868bd0ec2f58a3469646d672b0",
     ],
   ] as const)(
-    "preserva todo o resultado e a ancoragem para fyk=%s MPa",
+    "preserva a ancoragem e fixa o resultado atual para fyk=%s MPa",
     (fyk, fbd, lb, lbNec, pin, hash) => {
       const p = shortFixture();
       p.materials.fyk = fyk;
       p.rebar.tieDiameter = 20;
       p.design.bond = "poor";
-      // Mesmo projeto capturado antes do recorte; preserve o hash integral,
-      // sem normalizar resultados nem o fingerprint. Campo ausente usa keep.
+      // Números de aderência/ancoragem históricos; snapshot atualizado para
+      // a nova localização dos materiais e resistência secundária da issue #35.
       delete (p.design as Partial<typeof p.design>).excessConcrete;
       const result = calculate(p);
       expect(result.values.fbd).toBe(fbd);

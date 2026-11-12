@@ -25,7 +25,7 @@ O tema fica em **Configurações > Geral / Aparência**, além do acesso rápido
 
 Use **Novo projeto** e confirme nome, cliente e responsável em Dados do projeto. Cancelar mantém o projeto anterior. Use **Abrir** para carregar um projeto; o exemplo `examples/casos-validacao.lume.json` permite explorar o motor, e `examples/detalhamento/consolos-detalhados.lume.json` demonstra tirantes simples e duplos.
 
-Novos arquivos usam `.consolo.json`; os antigos `.lume.json` continuam reconhecidos. O esquema atual é 4. Projetos antigos precisam da revisão dos parâmetros migrados antes de calcular. Salve com `Ctrl+S` (ou `Cmd+S` no macOS). Rascunhos do navegador e desktop são separados; transfira o arquivo de projeto para mudar de ambiente.
+Novos arquivos usam `.consolo.json`; os antigos `.lume.json` continuam reconhecidos. O esquema atual é 5, com migração dos esquemas 1–4. Projetos antigos precisam da revisão dos parâmetros migrados antes de calcular. Salve com `Ctrl+S` (ou `Cmd+S` no macOS). Rascunhos do navegador e desktop são separados; transfira o arquivo de projeto para mudar de ambiente.
 
 ## 2. Conferir entradas
 
@@ -39,9 +39,9 @@ Selecione o consolo e revise geometria, materiais, cargas, armaduras e a aba **C
 - Alterar bitolas, camadas, estribos ou cobrimento pode modificar a altura útil e o modelo resistente.
 - As combinações são fornecidas pelo projetista; não há geração automática segundo NBR 8681.
 
-Em **Modelo > Materiais**, selecione a **Classe de aço do tirante**: CA-25 · 250 MPa, CA-50 · 500 MPa ou CA-60 · 600 MPa. O campo mostra também η1 da aderência (1,00 / 2,25 / 1,00). Para CA-60, o valor atual permanece pendente de confirmação do responsável técnico quanto à superfície do fio/barra.
+Em **Modelo > Materiais**, o grupo **CONCRETO** contém Fck; em **AÇO DAS ARMADURAS**, selecione **Aço do tirante** (CA-25 ou CA-50) e **Aço da costura e estribos** (CA-25, CA-50 ou CA-60). O padrão dos dois é CA-50. O campo do tirante mostra η1 da aderência (1,00 para CA-25 e 2,25 para CA-50). As resistências de cálculo são limitadas a 435 MPa, inclusive na ancoragem do tirante.
 
-Um projeto antigo com outro fyk, como 420 MPa, mostra **Personalizado (420 MPa), não suportado** e preserva esse número ao abrir e salvar. O cálculo permanece fora do domínio até uma escolha válida explícita; não se converte o valor automaticamente. As escolhas afetam somente a peça selecionada, entram em Desfazer/Refazer e são guardadas com **Salvar projeto**, mantendo fyk numérico. Nas propriedades **Cálculo > Durabilidade e disposição**, o aço da costura e estribos continua limitado a CA-50/CA-60. Consulte [os critérios e a pendência técnica](CRITERIOS-DE-CALCULO.md#classes-de-aço-do-tirante) e [a validação da contribuição](VALIDACAO-CLASSES-ACO.md).
+Arquivos antigos migram o aço secundário de Cálculo para Materiais, preservando seu valor; o seletor não aparece mais em Durabilidade e disposição. Um tirante legado CA-60 permanece 600 MPa, aparece como não suportado e impede o cálculo até escolha explícita de CA-25/CA-50. Um valor personalizado, como 420 MPa, também permanece salvo e não suportado. Não há conversão automática. A abertura com migração pode ser desfeita/refeita, assim como as edições dos materiais; as escolhas afetam somente a peça selecionada e invalidam resultados anteriores. Salve com **Salvar projeto**. Consulte [os critérios](CRITERIOS-DE-CALCULO.md#classes-de-aço-do-tirante-e-das-secundárias) e [a validação da issue #35](VALIDACAO-ACO-SEPARADO.md).
 
 ## 3. Calcular e ler a memória
 

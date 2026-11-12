@@ -22,7 +22,7 @@ export default function StrutLimitControl({
   const material = materialProperties(
     piece.materials.fck,
     piece.materials.fyk,
-    piece.design.fykTransverse,
+    piece.materials.fykTransverse,
     piece.design.gammaC,
     piece.design.gammaS,
   );

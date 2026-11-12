@@ -30,6 +30,7 @@ const valueText = (value: number | undefined, digits = 3) =>
 const anchorageRows = (
   v: CaseResult["values"],
 ): [string, number | undefined, string][] => [
+  ["fyd adotado na ancoragem (máx. 435 MPa)", v.fydLimited, "MPa"],
   ["lb básico", v.lb, "mm"],
   ["α da ancoragem no suporte", v.anchorAlpha, ""],
   [
@@ -59,7 +60,8 @@ function BeamMemory({ c }: { c: CaseResult }) {
     ["γc de referência da produção", v.gammaCReference, ""],
     ["γs de referência da produção", v.gammaSReference, ""],
     ["fcd", v.fcd, "MPa"],
-    ["fyd adotado", v.fydLimited, "MPa"],
+    ["fyd adotado do tirante", v.fydLimited, "MPa"],
+    ["fywd adotado da costura e estribos", v.fywd, "MPa"],
     ["d′", v.dPrime, "mm"],
     ["Vsd", v.beam_shear / 1000, "kN"],
     ["Msd = Vd·a + Hd·(hapoio + d′)", v.beam_moment / 1e6, "kN·m"],
@@ -294,7 +296,12 @@ function CalculationReport({
                           "",
                         ],
                         ["fcd", c.values.fcd, "MPa"],
-                        ["fyd adotado", c.values.fydLimited, "MPa"],
+                        ["fyd adotado do tirante", c.values.fydLimited, "MPa"],
+                        [
+                          "fywd adotado da costura e estribos",
+                          c.values.fywd,
+                          "MPa",
+                        ],
                         ["d′", c.values.dPrime, "mm"],
                         ["θ do modelo geométrico", c.values.stm_theta, "°"],
                         ["z do modelo geométrico", c.values.stm_z, "mm"],

@@ -28,7 +28,7 @@ import {
   loopPinDefined,
   loopPinFactor,
   requiresSupportHook,
-  steelClassOf,
+  tieSteelClassOf,
 } from "./steel";
 
 export const ENGINE_VERSION = "0.4.0";
@@ -132,7 +132,7 @@ export function materialProperties(
   gammaS = 1.15,
 ) {
   const fcd = fck / gammaC,
-    fyd = fyk / gammaS;
+    fyd = Math.min(fyk / gammaS, 435);
   const fctm =
     fck <= 50 ? 0.3 * fck ** (2 / 3) : 2.12 * Math.log(1 + 0.1 * (fck + 8));
   const alphaV2 = 1 - fck / 250;
@@ -441,7 +441,8 @@ function calculateCase(
       : q.method;
   const isBeam = method === "beam";
   // calculate() rejects unknown numeric steels before entering this case.
-  const steel = steelClassOf(p.materials.fyk)!;
+  const steel = tieSteelClassOf(p.materials.fyk)!;
+  const secondaryFyk = p.materials.fykTransverse ?? 500;
   const safety = materialSafety(q);
   const coefficientValues = {
     gammaC: safety.gammaC,
@@ -452,7 +453,7 @@ function calculateCase(
   const m = materialProperties(
     p.materials.fck,
     p.materials.fyk,
-    q.fykTransverse,
+    secondaryFyk,
     safety.gammaC,
     safety.gammaS,
   );
@@ -536,7 +537,7 @@ function calculateCase(
     lambda: m.lambda,
     fctm: m.fctm,
     fywd: m.fywd,
-    fykTransverse: q.fykTransverse,
+    fykTransverse: secondaryFyk,
   });
   const asModel = isBeam
     ? beam.steelModel
@@ -565,8 +566,12 @@ function calculateCase(
   );
   const asV =
     method === "friction"
-      ? Math.max((0.8 * vertical) / (fy * mu), (vertical * a) / (0.9 * d) / fy)
-      : Math.max(model.tieForce - horizontal, (0.1 + ratio) * vertical) / fy;
+      ? Math.max(
+          (0.8 * vertical) / (m.fywd * mu),
+          (vertical * a) / (0.9 * d) / m.fywd,
+        )
+      : Math.max(model.tieForce - horizontal, (0.1 + ratio) * vertical) /
+        m.fywd;
   const rho = asTie / (b * d),
     tau = vertical / (b * d);
   const tauLimitSteel = 3 + 0.9 * rho * fy;
@@ -590,7 +595,7 @@ function calculateCase(
     totalLiterature / zone,
   );
   const stitchRequired = stitchRate * zone;
-  const stitchLiterature = (0.5 * elDebs.tieVertical) / fy;
+  const stitchLiterature = (0.5 * elDebs.tieVertical) / m.fywd;
   const stitchEnvelope = q.literatureRecommendations
     ? Math.max(stitchRequired, stitchLiterature)
     : stitchRequired;
@@ -942,7 +947,7 @@ function calculateCase(
         stitchEnvelope,
         stitchProvided,
         "mm²",
-        "As,cost = max(r9062·2d/3; 0,0015b·2d/3; 0,4As,tir [curto]; kAsv; 0,5 Vd a/(0,9d fy) se El Debs ativado)",
+        "As,cost = max(r9062·2d/3; 0,0015b·2d/3; 0,4As,tir [curto]; kAsv; 0,5 Vd a/(0,9d fywd) se El Debs ativado)",
         refs.stitch,
         "N2 conta estribos horizontais fechados, com dois ramos efetivos. k=0,4 curto / 0,5 muito curto: complemento conservador de El Debs.",
       ),
@@ -1686,9 +1691,9 @@ export function calculate(p: Piece): CalculationResult {
     unsupported.push(
       "Consolo curto com junta de concretagem requer modelo adicional da interface; adote análise específica.",
     );
-  if (!steelClassOf(p.materials.fyk))
+  if (!tieSteelClassOf(p.materials.fyk))
     unsupported.push(
-      "O motor admite aço do tirante CA-25, CA-50 ou CA-60; informe fyk 250, 500 ou 600 MPa.",
+      "O motor admite aço do tirante somente CA-25 ou CA-50; informe fyk 250 ou 500 MPa. O valor legado foi preservado, sem conversão automática.",
     );
   if (q.horizontalMode === "estimated" && q.supportType === "restrained")
     unsupported.push(
