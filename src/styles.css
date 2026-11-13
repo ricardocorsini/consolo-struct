@@ -2131,6 +2131,30 @@ kbd {
 .material-safety-warning ul {
   padding-left: 16px;
 }
+.gamma-n-control {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.gamma-n-control p {
+  margin: 8px 0;
+}
+.gamma-n-control select,
+.gamma-n-control textarea {
+  width: 100%;
+  min-width: 0;
+}
+.inspector .gamma-n-policy-field {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 8px 10px;
+}
+.gamma-n-policy {
+  display: block;
+  overflow-wrap: anywhere;
+}
 .design-panel summary {
   cursor: pointer;
   font-weight: 600;

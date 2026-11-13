@@ -29,17 +29,17 @@ A edição bibliográfica completa dos dois livros não foi inferida a partir de
 
 ## Decisões entre fontes
 
-| Questão                    | Diferença encontrada                                                                                     | Decisão do motor                                                                                                                  |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| γn                         | 6118 §22.2 indica pelo menos 1,2; 9062 §7.3.1.1 distingue produção e predominância da ação permanente    | `max(1,2; γn9062; γn informado)`. É política conservadora explícita, não declaração de que os textos são idênticos                |
-| Fronteira a/d = 0,5        | A classificação literal da 6118 inclui a fronteira em curtos; a 9062 a inclui em muito curtos            | Convenção da 9062. A memória registra o modelo; bielas pode ser solicitado para monolítico                                        |
-| Costura                    | 9062 expressa **área por altura**; 6118 prescreve **área total** de pelo menos 40% do tirante nos curtos | Converter corretamente as grandezas e usar o envelope descrito adiante                                                            |
-| Resistência no muito curto | Limites de 6 MPa e coeficientes antigos aparecem em El Debs                                              | Usar a expressão da 9062:2017, com teto 8 MPa; não copiar limites históricos como norma atual                                     |
-| H mínimo                   | O livro traz a aproximação histórica H/V = 0,20                                                          | Usar tipo de apoio da 9062:2017 ou resultante de análise justificada                                                              |
-| Taxa mecânica máxima       | ω = 0,15 aparece no tratamento histórico                                                                 | Não apresentá-la como limite atual. No modelo de atrito, a demonstração de ductilidade permanece pendente de análise complementar |
-| Suspensão                  | O tratamento simplificado do livro pode atribuir parcela da reação ao mecanismo direto                   | Dimensionar para **100% da ação indireta**, conforme as normas fornecidas                                                         |
-| Barra soldada              | Regras de várias barras transversais e regra de barra única são diferentes                               | Barra única com mesmo diâmetro, geometria e qualificação específica; não usar a regra de 60% do tirante                           |
-| CA-60 / aderência          | A definição de η1 depende da superfície do fio/barra                                                     | Preservar η1 = 2,25 para CA-50 e 1,00 para CA-25/CA-60; CA-60 pendente de confirmação pelo responsável técnico, conforme issue #3 |
+| Questão                    | Diferença encontrada                                                                                     | Decisão do motor                                                                                                                                                                      |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| γn                         | 6118 §22.2 indica pelo menos 1,2; 9062 §7.3.1.1 distingue produção e predominância da ação permanente    | Padrão `floor12`: `max(1,2; γn9062; γn informado)`. Opção explícita `table9062`, com justificativa e `review`, segue a tabela sem esse piso. Não declara equivalência entre os textos |
+| Fronteira a/d = 0,5        | A classificação literal da 6118 inclui a fronteira em curtos; a 9062 a inclui em muito curtos            | Convenção da 9062. A memória registra o modelo; bielas pode ser solicitado para monolítico                                                                                            |
+| Costura                    | 9062 expressa **área por altura**; 6118 prescreve **área total** de pelo menos 40% do tirante nos curtos | Converter corretamente as grandezas e usar o envelope descrito adiante                                                                                                                |
+| Resistência no muito curto | Limites de 6 MPa e coeficientes antigos aparecem em El Debs                                              | Usar a expressão da 9062:2017, com teto 8 MPa; não copiar limites históricos como norma atual                                                                                         |
+| H mínimo                   | O livro traz a aproximação histórica H/V = 0,20                                                          | Usar tipo de apoio da 9062:2017 ou resultante de análise justificada                                                                                                                  |
+| Taxa mecânica máxima       | ω = 0,15 aparece no tratamento histórico                                                                 | Não apresentá-la como limite atual. No modelo de atrito, a demonstração de ductilidade permanece pendente de análise complementar                                                     |
+| Suspensão                  | O tratamento simplificado do livro pode atribuir parcela da reação ao mecanismo direto                   | Dimensionar para **100% da ação indireta**, conforme as normas fornecidas                                                                                                             |
+| Barra soldada              | Regras de várias barras transversais e regra de barra única são diferentes                               | Barra única com mesmo diâmetro, geometria e qualificação específica; não usar a regra de 60% do tirante                                                                               |
+| CA-60 / aderência          | A definição de η1 depende da superfície do fio/barra                                                     | Preservar η1 = 2,25 para CA-50 e 1,00 para CA-25/CA-60; CA-60 pendente de confirmação pelo responsável técnico, conforme issue #3                                                     |
 
 ## Unidades e entradas
 
@@ -85,6 +85,31 @@ No modo característico:
 `Hinformado,d = max(0; Hk × γf × γn)`
 
 No modo de cálculo, V e H já incluem os coeficientes, inclusive γn. O fator aplicado pelo motor é 1. As combinações são **fornecidas pelo usuário**; o programa não decompõe G/Q, não gera combinações segundo NBR 8681 e não usa coeficientes excepcionais.
+
+### Política do coeficiente adicional γn
+
+Em **Configurações > Dimensionamento > Critérios da peça selecionada** ou **Modelo > Critérios da peça selecionada**, no painel Cálculo, a escolha de γn pertence à peça. O padrão **Piso conservador de 1,2** (`floor12`) mantém a expressão acima, inclusive um mínimo informado maior que 1,2. Arquivos sem os campos novos recebem `gammaNPolicy = "floor12"` e `gammaNJustification = ""`. O esquema atual permanece 5, preservando os dados de N3/N4 e a migração dos esquemas 1–4.
+
+A opção **Tabela NBR 9062, sem piso de 1,2** (`table9062`) usa exatamente os valores que já estavam no motor:
+
+| Produção                  | Ação permanente predominante | γn da tabela |
+| ------------------------- | ---------------------------- | ------------ |
+| Pré-fabricado (`factory`) | Sim                          | 1,00         |
+| Pré-fabricado (`factory`) | Não                          | 1,10         |
+| Pré-moldado (`precast`)   | Sim                          | 1,10         |
+| Pré-moldado (`precast`)   | Não                          | 1,20         |
+
+A escolha exige justificativa com pelo menos **10 caracteres após retirar espaços nas extremidades**, até 1000 caracteres no arquivo. Sem justificativa válida, o motor retorna `unsupported`, sem valores de dimensionamento. O mínimo γn informado permanece guardado, mas não participa do cálculo nem fica visível enquanto a tabela está ativa. Ao voltar ao padrão, o mínimo anterior reaparece.
+
+Para **moldado no local** (`cast`), a opção da tabela fica desabilitada e se aplica a regra conservadora atual: `max(1,2; γn informado)`. Assim, um mínimo informado de 1,5 continua produzindo γn = 1,5. Mesmo num arquivo que solicite `table9062` para `cast`, a política efetiva é `floor12`; a justificativa inativa não é exigida nem gera a conferência da tabela. A solicitação fica registrada no arquivo e na auditoria, sem redução automática.
+
+Com a tabela ativa e justificativa válida, a verificação `gammaNPolicy` permanece **review**, inclusive quando o valor tabelado for 1,2. Ela registra γn adotado, o piso de referência 1,2 e a justificativa. Uma falha independente ainda pode governar o estado geral, sem transformar a conferência em aprovação. A sugestão de armaduras conserva essa pendência.
+
+Exemplo: Vk = 350 kN, γf = 1,4, pré-moldado com ação permanente predominante: `floor12` produz Vd = 588 kN; `table9062` produz Vd = **539 kN**. H característico e peso próprio opcional recebem o mesmo fator, mantendo suas regras anteriores. Forças já de cálculo continuam com fator 1; a escolha não as majora outra vez.
+
+A decisão aparece na tela, memória, PDF e cálculo auditável. Exportações geométricas e de detalhamento incluem notas quando há solicitação da tabela; os CSVs acrescentam colunas de política, coeficientes e justificativa nessas peças/projetos, mantendo o formato anterior quando todas usam o padrão. A justificativa é preservada como texto da entrada. `values.gammaN` e `values.gammaN9062` continuam numéricos; o resultado só acrescenta `gammaNDecision` quando há solicitação explícita de tabela.
+
+Trata-se de decisão explícita do responsável técnico, **não** de declaração de equivalência entre NBR 6118 e NBR 9062 nem de confirmação automática do enquadramento da produção. Referências: NBR 9062:2017 §7.3.1.1; NBR 6118:2026 §22.2. Os valores foram preservados do código; os textos normativos não foram consultados nem reproduzidos nesta contribuição. Consulte a [validação da issue #1](VALIDACAO-POLITICA-GAMMA-N.md).
 
 | Apoio com movimento horizontal permitido | H estimado / Vd |
 | ---------------------------------------- | --------------: |

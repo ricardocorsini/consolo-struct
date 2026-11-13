@@ -5,6 +5,8 @@ import { coefficientText } from "../domain/materialSafety";
 import { fykOf, steelOptionLabel } from "../domain/steel";
 import type { Piece } from "../domain/model";
 import type { DesignSettings } from "../domain/design";
+import { gammaNDecision, gammaNPolicyLabels } from "../domain/gammaN";
+import { useId } from "react";
 
 export default function DesignPanel({
   piece: p,
@@ -14,6 +16,8 @@ export default function DesignPanel({
   update: (p: Piece) => void;
 }) {
   const q = p.design;
+  const gammaN = gammaNDecision(q);
+  const gammaNHelp = useId();
   const set = <K extends keyof DesignSettings>(
     key: K,
     value: DesignSettings[K],
@@ -97,7 +101,64 @@ export default function DesignPanel({
           onChange={(patch) => update({ ...p, design: { ...q, ...patch } })}
         />
         {toggle("permanentPredominant", "Ação permanente predominante")}
-        {num("gammaN", "Coeficiente adicional mínimo γn", "", 1, 1.2, 3)}
+        <section
+          className="gamma-n-control"
+          aria-label="Política de γn da peça"
+        >
+          <label className="field gamma-n-policy-field">
+            <span className="field-label">Política do coeficiente γn</span>
+            <select
+              value={q.gammaNPolicy ?? "floor12"}
+              aria-describedby={gammaNHelp}
+              onChange={(event) =>
+                set(
+                  "gammaNPolicy",
+                  event.target.value as DesignSettings["gammaNPolicy"],
+                )
+              }
+            >
+              <option value="floor12">{gammaNPolicyLabels.floor12}</option>
+              <option value="table9062" disabled={q.production === "cast"}>
+                {gammaNPolicyLabels.table9062}
+              </option>
+            </select>
+          </label>
+          {gammaN.policy === "table9062" ? (
+            <label className="field gamma-n-policy-field">
+              <span className="field-label">
+                Justificativa da política de γn
+              </span>
+              <textarea
+                value={q.gammaNJustification ?? ""}
+                maxLength={1000}
+                aria-describedby={gammaNHelp}
+                onChange={(event) =>
+                  set("gammaNJustification", event.target.value)
+                }
+                placeholder="Decisão do responsável técnico, ao menos 10 caracteres"
+              />
+            </label>
+          ) : (
+            num("gammaN", "Coeficiente adicional mínimo γn", "", 1, 1.2, 3)
+          )}
+          <p id={gammaNHelp}>
+            {q.production === "cast"
+              ? "A tabela sem piso não se aplica a moldado no local. Aplica-se a política conservadora, incluindo o mínimo informado; uma seleção anterior da tabela fica sem efeito."
+              : gammaN.policy === "table9062"
+                ? "Escolha explícita do responsável técnico. Exige justificativa com ao menos 10 caracteres e gera conferência na memória. O mínimo γn informado não participa. Não declara equivalência entre as normas."
+                : "Padrão conservador: máximo entre 1,2, o valor da tabela e o mínimo informado."}
+          </p>
+          <p>
+            {q.production === "cast"
+              ? "Referência conservadora"
+              : "γn da tabela"}
+            : {coefficientText(gammaN.gammaN9062)} · γn adotado:{" "}
+            {coefficientText(gammaN.gammaN)} · piso de referência: 1,2.
+          </p>
+          {q.forceMode === "design" && (
+            <small>As forças já de cálculo não são majoradas novamente.</small>
+          )}
+        </section>
         {select("loadType", "Introdução da carga", [
           ["direct", "Direta"],
           ["indirect", "Indireta: suspensão integral"],
