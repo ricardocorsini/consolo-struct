@@ -8,6 +8,7 @@ import {
 } from "./drawing";
 import { steelMass } from "./geometry";
 import { steelLabel } from "../domain/steel";
+import { gammaNDecision, gammaNPolicyLabels } from "../domain/gammaN";
 
 export const escapeXml = (s: string) =>
   s.replace(
@@ -273,6 +274,9 @@ function csvCell(value: string | number) {
   return `"${v.replace(/"/g, '""')}"`;
 }
 export function steelCsv(details: Detail[]): string {
+  const withGammaN = details.some(
+    (d) => d.piece.design.gammaNPolicy === "table9062",
+  );
   const rows: (string | number)[][] = [
     [
       "Peça",
@@ -292,6 +296,14 @@ export function steelCsv(details: Detail[]): string {
       "Observação",
     ],
   ];
+  if (withGammaN)
+    rows[0].push(
+      "Política γn",
+      "γn da tabela",
+      "γn adotado",
+      "Piso de referência γn",
+      "Justificativa informada γn",
+    );
   for (const d of details)
     for (const b of d.bars)
       rows.push([
@@ -318,6 +330,15 @@ export function steelCsv(details: Detail[]): string {
           ? "Pendências impeditivas"
           : "Para conferência",
         b.note,
+        ...(withGammaN
+          ? [
+              gammaNPolicyLabels[gammaNDecision(d.piece.design).policy],
+              d.result.values.gammaN9062 ?? "",
+              d.result.values.gammaN ?? "",
+              1.2,
+              d.piece.design.gammaNJustification ?? "",
+            ]
+          : []),
       ]);
   return "\uFEFF" + rows.map((row) => row.map(csvCell).join(";")).join("\r\n");
 }

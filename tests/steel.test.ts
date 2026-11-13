@@ -122,6 +122,8 @@ describe("Regressão capturada no upstream e903617, antes da integração de cla
       delete (p.design as Partial<typeof p.design>).excessConcrete;
       delete (p.rebar as Partial<typeof p.rebar>).stirrupBranches;
       delete (p.rebar as Partial<typeof p.rebar>).constructiveDiameter;
+      delete (p.design as Partial<typeof p.design>).gammaNPolicy;
+      delete (p.design as Partial<typeof p.design>).gammaNJustification;
       const result = legacyN4Labels(calculate(p));
       expect(result.values.fbd).toBe(fbd);
       expect(result.values.lb).toBe(lb);

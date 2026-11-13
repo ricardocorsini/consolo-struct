@@ -92,6 +92,16 @@ Itens **Em breve** são informativos, não executam ações nem salvam configura
 
 Capturas da aba: [tema claro](images/configuracoes-claro.png) e [tema escuro](images/configuracoes-escuro.png).
 
+#### Escolher a política de γn
+
+Abra **Configurações > Dimensionamento > Critérios da peça selecionada**, ou o mesmo comando em **Modelo**, e procure **Política do coeficiente γn** no painel Cálculo, junto ao processo de produção e à ação permanente predominante.
+
+**Piso conservador de 1,2 (padrão)** preserva o comportamento anterior. Para adotar explicitamente **Tabela NBR 9062, sem piso de 1,2**, escreva a justificativa do responsável técnico com ao menos dez caracteres. Sem justificativa suficiente, Calcular retorna **Fora do domínio do motor** e explica o motivo. O campo de mínimo γn desaparece nessa opção, mas seu valor é preservado para quando voltar ao padrão.
+
+Para moldado no local, a tabela fica desabilitada e vale o piso conservador, respeitando também o mínimo informado. A tela mostra a referência e o coeficiente adotado. A escolha da tabela gera **Conferir**, com os coeficientes e a justificativa nas saídas; ela não aprova o projeto nem afirma equivalência entre as normas. Forças já de cálculo continuam sem nova majoração.
+
+As escolhas afetam somente a peça selecionada, entram em Desfazer/Refazer e são guardadas com **Salvar projeto**. Recalcule depois de editar. Consulte os [critérios](CRITERIOS-DE-CALCULO.md#política-do-coeficiente-adicional-γn) e as [capturas e validações](VALIDACAO-POLITICA-GAMMA-N.md).
+
 #### Configurar o limite da biela
 
 Em **Configurações > Dimensionamento > Limite da biela da peça selecionada**, confira o nome da peça e escolha o critério. O mesmo seletor está em **Modelo > Critérios da peça selecionada > Modelo e ações**, nas propriedades.

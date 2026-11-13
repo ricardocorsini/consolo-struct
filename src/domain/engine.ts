@@ -22,6 +22,12 @@ import {
   materialSafety,
   materialSafetyReference,
 } from "./materialSafety";
+import {
+  gammaNDecision,
+  gammaNDecisionText,
+  gammaNReference,
+  type GammaNDecision,
+} from "./gammaN";
 import { concreteProfile, excessConcreteLabels, pieceVolume } from "./profile";
 import {
   bondCoefficientEta1,
@@ -66,6 +72,8 @@ export interface CalculationResult {
   checks: Check[];
   values: Record<string, number>;
   assumptions: string[];
+  /** Present only for an explicit table request, preserving legacy default results. */
+  gammaNDecision?: GammaNDecision;
 }
 export const classificationLabels: Record<
   CaseResult["classification"],
@@ -456,17 +464,9 @@ function calculateCase(
     safety.gammaC,
     safety.gammaS,
   );
-  const gn9062 =
-    q.production === "factory"
-      ? q.permanentPredominant
-        ? 1
-        : 1.1
-      : q.production === "precast"
-        ? q.permanentPredominant
-          ? 1.1
-          : 1.2
-        : 1.2;
-  const gammaN = Math.max(1.2, gn9062, q.gammaN);
+  const decision = gammaNDecision(q);
+  const gn9062 = decision.gammaN9062;
+  const gammaN = decision.gammaN;
   const factor = q.forceMode === "design" ? 1 : load.gamma * gammaN;
   const selfWeight =
     q.includeSelfWeight && q.forceMode === "characteristic"
@@ -654,6 +654,15 @@ function calculateCase(
     r.stirrupCount > 1 ? stirrupLayout(p).pitch : g.length;
   const checks: Check[] = [];
   const add = (c: Check) => checks.push(c);
+  if (decision.policy === "table9062")
+    add(
+      note(
+        "gammaNPolicy",
+        "Adoção da tabela de γn sem o piso conservador",
+        gammaNDecisionText(decision),
+        gammaNReference,
+      ),
+    );
   const profile = concreteProfile(p);
   if (profile.status !== "kept")
     add(
@@ -1601,6 +1610,7 @@ function calculateCase(
   };
 }
 export function calculate(p: Piece): CalculationResult {
+  const decision = gammaNDecision(p.design);
   const base: CalculationResult = {
     kind: "calculated",
     engineVersion: ENGINE_VERSION,
@@ -1612,9 +1622,12 @@ export function calculate(p: Piece): CalculationResult {
     governingCase: "",
     checks: [],
     values: {},
+    ...(decision.requestedPolicy === "table9062"
+      ? { gammaNDecision: decision }
+      : {}),
     assumptions: [
       "Consolo simples, concreto armado, seção retangular na ligação, carga vertical descendente e ações no plano médio; ELU estático.",
-      `γc=${coefficientText(p.design.gammaC ?? 1.4)} e γs=${coefficientText(p.design.gammaS ?? 1.15)} (combinações normais); γn ≥ 1,2 por compatibilização conservadora das duas normas fornecidas.`,
+      `γc=${coefficientText(p.design.gammaC ?? 1.4)} e γs=${coefficientText(p.design.gammaS ?? 1.15)} (combinações normais); ${decision.policy === "table9062" ? gammaNDecisionText(decision) : "γn ≥ 1,2 por compatibilização conservadora das duas normas fornecidas."}`,
       "As combinações de ações são fornecidas pelo usuário. Valores de cálculo já incluem γn; não são majorados novamente.",
       "No modo estimado, Hd = coeficiente do apoio × Vd + H adicional positivo. No modo análise, H é a resultante total justificada. Compressão horizontal favorável é ignorada.",
       p.design.literatureRecommendations
@@ -1656,6 +1669,13 @@ export function calculate(p: Piece): CalculationResult {
     return base;
   }
   const unsupported: string[] = [];
+  if (
+    decision.policy === "table9062" &&
+    decision.justification.trim().length < 10
+  )
+    unsupported.push(
+      "Informe justificativa de ao menos 10 caracteres para usar a tabela da NBR 9062 sem o piso de γn = 1,2.",
+    );
   const selectedStrutLimit = q.strutLimit ?? "fcd2";
   if (!strutLimitAllowed(selectedStrutLimit, q.loadType))
     unsupported.push(

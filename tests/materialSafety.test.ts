@@ -53,6 +53,9 @@ describe("Coeficientes dos materiais — resistências em MPa", () => {
       delete legacy.rebar.constructiveDiameter;
       delete legacy.design.gammaC;
       delete legacy.design.gammaS;
+      // Complete snapshots captured before the opt-in gamma-n policy.
+      delete legacy.design.gammaNPolicy;
+      delete legacy.design.gammaNJustification;
       // Projeto anterior ao recorte: campo ausente, sem normalizar o fingerprint.
       delete legacy.design.excessConcrete;
       // Issue #12: options off by default; only metadata and the anchorage

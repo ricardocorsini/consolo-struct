@@ -8,6 +8,7 @@ import {
 import { number } from "../domain/model";
 import { memo } from "react";
 import LazyDetails from "./LazyDetails";
+import { gammaNDecisionText, gammaNPolicyLabels } from "../domain/gammaN";
 export const resultLabels: Record<CalculationResult["status"], string> = {
   pass: "Atende às verificações implementadas",
   fail: "Há verificações não atendidas",
@@ -54,6 +55,7 @@ function BeamMemory({ c }: { c: CaseResult }) {
       "kN",
     ],
     ["γn aplicado às ações características", v.gammaN, ""],
+    ["γn da tabela NBR 9062", v.gammaN9062, ""],
     ["γc adotado", v.gammaC, ""],
     ["γs adotado", v.gammaS, ""],
     ["γc de referência da produção", v.gammaCReference, ""],
@@ -195,6 +197,11 @@ function CalculationReport({
           Motor {result.engineVersion} · {result.policy} · ELU estático
         </small>
       </div>
+      <p className="table-note gamma-n-policy">
+        {result.gammaNDecision
+          ? gammaNDecisionText(result.gammaNDecision)
+          : `Política γn: ${gammaNPolicyLabels.floor12}. Máximo entre 1,2, o valor da tabela e o mínimo informado.`}
+      </p>
       {result.reasons.map((r, i) => (
         <p className="check-error" key={i}>
           {r}
@@ -283,6 +290,7 @@ function CalculationReport({
                           "",
                         ],
                         ["γc adotado", c.values.gammaC, ""],
+                        ["γn da tabela NBR 9062", c.values.gammaN9062, ""],
                         ["γs adotado", c.values.gammaS, ""],
                         [
                           "γc de referência da produção",

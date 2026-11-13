@@ -20,6 +20,11 @@ import { beamBarPositions } from "./beam";
 import { reactionGeometry } from "../domain/theory";
 import { bottomDepth, concreteProfile } from "../domain/profile";
 import { coefficientText, materialSafety } from "../domain/materialSafety";
+import {
+  gammaNDecision,
+  gammaNDecisionText,
+  gammaNReference,
+} from "../domain/gammaN";
 import { steelLabel } from "../domain/steel";
 
 export type Layer =
@@ -1081,6 +1086,11 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     "Mandris e ganchos: NBR 6118:2026, 9.4.2.3, tabelas 9.1 e 9.2 e 9.4.6.1. Estribos representados pela projeção nominal com fechamento de ganchos fora do plano.",
     "Comprimentos C somam trechos retos e arcos no eixo; não se obtêm por soma de cotas externas. O excedente de arredondamento fica na ponta reta. Densidade do aço: 7 850 kg/m³.",
     "Não cortar ou dobrar barras a partir da escala da tela. Conferir as cotas, o ajuste das armaduras no suporte e as tolerâncias do fabricante.",
+    ...(q.gammaNPolicy === "table9062"
+      ? [
+          `CONFERIR: ${gammaNDecisionText(d.result.gammaNDecision ?? gammaNDecision(q))} ${gammaNReference}.`,
+        ]
+      : []),
     ...(beam
       ? [
           "Armado como viga: dobras do tirante dimensionadas com lb e razão As,req/As,ef do cálculo, sem desconto por barra soldada, contadas da face do suporte e da borda interna da placa de apoio; dobras da positiva para lb,nec da própria bitola. Dobras dentro do contorno com o cobrimento informado.",
