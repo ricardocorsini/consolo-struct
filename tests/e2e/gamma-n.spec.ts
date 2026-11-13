@@ -241,8 +241,10 @@ for (const model of ["short", "beam"]) {
     await expect(
       paper.getByText("γn da tabela NBR 9062", { exact: true }),
     ).toBeVisible();
+    const memoryCapture = testInfo.outputPath(`gamma-n-memoria-${model}.png`);
+    await page.screenshot({ path: memoryCapture, animations: "disabled" });
     await testInfo.attach(`gamma-n-memoria-${model}`, {
-      body: await page.screenshot({ animations: "disabled" }),
+      path: memoryCapture,
       contentType: "image/png",
     });
     const pdfEvent = page.waitForEvent("download");
@@ -305,8 +307,12 @@ test("controle acessível nos dois temas e em janela estreita", async ({
           .evaluate((el) => el.scrollWidth <= el.clientWidth),
       ).toBe(true);
       await policy(page).scrollIntoViewIfNeeded();
+      const controlCapture = testInfo.outputPath(
+        `gamma-n-${width}-${theme}.png`,
+      );
+      await page.screenshot({ path: controlCapture, animations: "disabled" });
       await testInfo.attach(`gamma-n-${width}-${theme}`, {
-        body: await page.screenshot({ animations: "disabled" }),
+        path: controlCapture,
         contentType: "image/png",
       });
     }
