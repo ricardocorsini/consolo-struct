@@ -96,18 +96,19 @@ Confira a [comparação minuciosa com Base Consolo](docs/COMPARACAO-BASE-CONSOLO
 
 ## Documentação
 
-| Documento                                            | Conteúdo                                                            |
-| ---------------------------------------------------- | ------------------------------------------------------------------- |
-| [Instalação](docs/INSTALACAO.md)                     | Ambiente, execução, produção, `.deb`, AppImage e outras plataformas |
-| [Guia de uso](docs/GUIA-DE-USO.md)                   | Navegação, arquivos, vistas, exemplos e convenções de entrada       |
-| [Critérios de cálculo](docs/CRITERIOS-DE-CALCULO.md) | Equações, fontes, hipóteses e limites do motor                      |
-| [Validação do motor](docs/VALIDACAO-MOTOR.md)        | Casos de referência e resultados esperados                          |
-| [Detalhamento](docs/DETALHAMENTO.md)                 | Barras, cotas, quantidades, saídas e pendências                     |
-| [Visualização 3D](docs/VISUALIZACAO-3D.md)           | Representação espacial, navegação e limitações                      |
-| [Arquitetura](docs/ARQUITETURA.md)                   | Módulos e separação entre interface e cálculo                       |
-| [Desempenho](docs/DESEMPENHO-0.6.md)                 | Worker, cache, navegação e medições indicativas                     |
-| [Validação da distribuição](docs/VALIDACAO.md)       | Verificações executadas e limites do ambiente testado               |
-| [Histórico](CHANGELOG.md)                            | Mudanças registradas por versão                                     |
+| Documento                                            | Conteúdo                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| [Instalação](docs/INSTALACAO.md)                     | Ambiente, execução, produção, `.deb`, AppImage e outras plataformas       |
+| [Atualizações](docs/ATUALIZACOES.md)                 | Checagem ao abrir, catálogo assinado e atualização por tipo de instalação |
+| [Guia de uso](docs/GUIA-DE-USO.md)                   | Navegação, arquivos, vistas, exemplos e convenções de entrada             |
+| [Critérios de cálculo](docs/CRITERIOS-DE-CALCULO.md) | Equações, fontes, hipóteses e limites do motor                            |
+| [Validação do motor](docs/VALIDACAO-MOTOR.md)        | Casos de referência e resultados esperados                                |
+| [Detalhamento](docs/DETALHAMENTO.md)                 | Barras, cotas, quantidades, saídas e pendências                           |
+| [Visualização 3D](docs/VISUALIZACAO-3D.md)           | Representação espacial, navegação e limitações                            |
+| [Arquitetura](docs/ARQUITETURA.md)                   | Módulos e separação entre interface e cálculo                             |
+| [Desempenho](docs/DESEMPENHO-0.6.md)                 | Worker, cache, navegação e medições indicativas                           |
+| [Validação da distribuição](docs/VALIDACAO.md)       | Verificações executadas e limites do ambiente testado                     |
+| [Histórico](CHANGELOG.md)                            | Mudanças registradas por versão                                           |
 
 ## Desenvolvimento
 

@@ -87,6 +87,7 @@ test("aba única, grupos, relação com o painel e navegação completa por tecl
   await expect(panel(page)).toBeFocused();
   for (const name of [
     "Tema escuro",
+    "Verificar atualizações",
     "Mostrar cotas",
     "Mostrar armaduras",
     "Mostrar cargas",

@@ -2720,3 +2720,122 @@ kbd {
 .arrangement-options label:has(input:disabled) {
   color: var(--muted);
 }
+
+/* Atualizações (issue #45): aviso não modal e item da barra de status. */
+.status-update {
+  font-size: 9px;
+  color: var(--muted);
+  padding: 1px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.status-update:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.status-update.is-attention {
+  color: var(--accent);
+  font-weight: 600;
+}
+.update-panel {
+  position: fixed;
+  z-index: 31;
+  right: 16px;
+  bottom: 36px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  box-shadow: 0 6px 24px #0003;
+  font-size: 11px;
+}
+.update-panel > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+.update-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.update-body {
+  padding: 0 12px 8px;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  line-height: 1.45;
+}
+.update-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+.update-versions dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+.update-versions dd {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.update-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+}
+.update-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+}
+.update-limit {
+  padding: 8px;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  overflow-wrap: anywhere;
+}
+.update-muted {
+  color: var(--muted);
+}
+.update-panel progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+.update-actions:empty {
+  display: none;
+}
+.update-spin {
+  animation: update-spin 1s linear infinite;
+}
+@keyframes update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-spin {
+    animation: none;
+  }
+}

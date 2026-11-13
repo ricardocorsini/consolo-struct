@@ -17,6 +17,15 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# Consulta do catálogo assinado e download conferido das atualizações (issue #45).
+base64 = "0.22"
+ed25519-dalek = "2"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+url = "2"
 
 [profile.release]
 codegen-units = 1

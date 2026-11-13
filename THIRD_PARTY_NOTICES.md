@@ -68,3 +68,7 @@ O código próprio do ConsoloStruct usa a licença MIT. As dependências abaixo 
 ## Visualização 3D — versão 0.4
 
 Three.js 0.187.0 (MIT), incluindo os módulos OrbitControls, SVGRenderer e BufferGeometryUtils, é distribuído localmente. Texto em `third-party-licenses/three__LICENSE`. As definições TypeScript @types/three 0.187.0 são usadas no desenvolvimento, com licença em `third-party-licenses/types__three__LICENSE`.
+
+## Atualizações do aplicativo desktop
+
+O executável Tauri passa a incluir, para consultar o catálogo assinado e conferir os pacotes, os crates Rust base64, ed25519-dalek, semver, serde, serde_json, sha2, ureq (com rustls e webpki-roots) e url, distribuídos sob MIT e/ou Apache-2.0 (webpki-roots: MPL-2.0 para os dados de certificados raiz). As versões exatas ficam em `src-tauri/Cargo.lock`.

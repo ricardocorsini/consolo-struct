@@ -33,6 +33,7 @@ import {
   ZoomOut,
   Plus,
   RectangleHorizontal,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 
@@ -196,6 +197,11 @@ export const ribbonCommands = {
     "Tema escuro",
     Moon,
     "Ativar ou desativar o tema escuro; preferência do aplicativo",
+  ),
+  updates: command(
+    "Verificar atualizações",
+    RefreshCw,
+    "Consultar o catálogo assinado do OpenStruct; não baixa nem instala sem confirmação",
   ),
   pdf: command(
     "Memória PDF",
@@ -393,6 +399,7 @@ export const ribbonGroups: Record<RibbonTab, Group[]> = {
       description: "Aplicativo · aparência",
       tools: [
         tool("theme"),
+        tool("updates"),
         future("general-preferences", "Preferências gerais", SlidersHorizontal),
       ],
     },
