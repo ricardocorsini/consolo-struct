@@ -1,3 +1,4 @@
+import { withoutAddedDuctility } from "./reference/without-added-ductility";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
@@ -166,7 +167,9 @@ describe("N3/N4 — cálculo e sugestão", () => {
       p.rebar.stirrupDiameter = 5;
       expect(
         createHash("sha256")
-          .update(JSON.stringify(numericResult(calculate(p))))
+          .update(
+            JSON.stringify(numericResult(withoutAddedDuctility(calculate(p)))),
+          )
           .digest("hex"),
       ).toBe(expected);
     },

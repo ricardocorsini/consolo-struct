@@ -1,6 +1,11 @@
 import { constructiveGeometry } from "../detailing/transverse";
 import { steelMass } from "../detailing/geometry";
 import {
+  ductilityCheckIds,
+  ductilityRows,
+  isUnsolvedPlasticRotation,
+} from "../domain/ductility";
+import {
   calculate,
   classificationLabels,
   ENGINE_VERSION,
@@ -172,6 +177,10 @@ const csvCell = (v: unknown) =>
     .replace(/^[=+@\-\t\r]/, "'$&")
     .replaceAll('"', '""')}"`;
 export function toCsv(project: Project) {
+  const results = project.pieces.map(calculate);
+  const withDuctility = results.some((r) =>
+    r.checks.some((c) => c.id === "ductilityXd"),
+  );
   const withGammaN = project.pieces.some(
     (p) => p.design.gammaNPolicy === "table9062",
   );
@@ -214,8 +223,21 @@ export function toCsv(project: Project) {
       "Piso de referencia gamma n",
       "Justificativa informada gamma n",
     );
-  for (const p of project.pieces) {
-    const r = calculate(p);
+  if (withDuctility)
+    for (const id of ductilityCheckIds)
+      rows[1].push(
+        ...[
+          "estado",
+          "valor",
+          "limite",
+          "unidade",
+          "formula",
+          "referencia",
+          "detalhe/combinacao",
+        ].map((field) => `${id} ${field}`),
+      );
+  for (const [index, p] of project.pieces.entries()) {
+    const r = results[index];
     const n4 = constructiveGeometry(p);
     const n4Cut = Math.ceil(n4.path.length - 1e-7);
     rows.push([
@@ -265,6 +287,24 @@ export function toCsv(project: Project) {
             1.2,
             p.design.gammaNJustification ?? "",
           ]
+        : []),
+      ...(withDuctility
+        ? ductilityCheckIds.flatMap((id) => {
+            const c = r.checks.find((v) => v.id === id);
+            return c
+              ? [
+                  c.status,
+                  isUnsolvedPlasticRotation(c)
+                    ? "sem solução"
+                    : (c.demand ?? ""),
+                  c.capacity ?? "",
+                  c.unit,
+                  c.formula,
+                  c.reference,
+                  c.detail,
+                ]
+              : ["", "", "", "", "", "", ""];
+          })
         : []),
     ]);
   }
@@ -317,6 +357,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       .replace(/μ/g, "mu")
       .replace(/ω/g, "omega")
       .replace(/λ/g, "lambda")
+      .replace(/√/g, "sqrt")
       .replace(/Δ/g, "Delta")
       .replace(/≤/g, "<=")
       .replace(/≥/g, ">=")
@@ -379,6 +420,8 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
   // Omitted beam values are indeterminate (invalid flexural domain), not unavailable.
   const beamNum = (n: number | undefined) =>
     n === undefined ? "indeterminado" : num(n);
+  const checkDemand = (c: (typeof result.checks)[number]) =>
+    isUnsolvedPlasticRotation(c) ? "sem solucao" : num(c.demand);
   header();
   line(project.name, 13, true);
   line(`Peca: ${p.name} | ${p.description} | Quantidade: ${p.quantity}`);
@@ -425,9 +468,9 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
   for (const c of result.checks) {
     if (y > 243) page();
     line(`${c.status.toUpperCase()} | ${c.label}`, 9, true);
-    if (c.demand !== null)
+    if (c.demand !== null || isUnsolvedPlasticRotation(c))
       line(
-        `Exigencia: ${num(c.demand)} ${c.unit} | Disponivel/limite: ${num(c.capacity)} ${c.unit} | Razao: ${c.utilization === null ? "--" : num(c.utilization * 100) + "%"}`,
+        `Exigencia: ${checkDemand(c)} ${c.unit} | Disponivel/limite: ${num(c.capacity)} ${c.unit} | Razao: ${c.utilization === null ? "--" : num(c.utilization * 100) + "%"}`,
       );
     if (c.formula) line(c.formula);
     if (c.detail) line(c.detail, 8);
@@ -512,7 +555,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       );
       for (const ch of c.checks)
         line(
-          `${ch.status.toUpperCase()} | ${ch.label}: ${num(ch.demand)} / ${num(ch.capacity)} ${ch.unit}`,
+          `${ch.status.toUpperCase()} | ${ch.label}: ${checkDemand(ch)} / ${num(ch.capacity)} ${ch.unit}`,
           8,
         );
       continue;
@@ -602,9 +645,14 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
           ]),
     ])
       line(`${label} = ${num(Number(val))} ${unit}`, 9);
+    for (const row of ductilityRows(v))
+      line(
+        `${row.label} = ${row.value === undefined ? "sem solucao" : num(row.value)} ${row.value === undefined ? "" : row.unit}`,
+        9,
+      );
     for (const ch of c.checks)
       line(
-        `${ch.status.toUpperCase()} | ${ch.label}: ${num(ch.demand)} / ${num(ch.capacity)} ${ch.unit}`,
+        `${ch.status.toUpperCase()} | ${ch.label}: ${checkDemand(ch)} / ${num(ch.capacity)} ${ch.unit}`,
         8,
       );
   }

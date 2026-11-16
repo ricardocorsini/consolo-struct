@@ -1,3 +1,4 @@
+import { withoutAddedDuctility } from "./reference/without-added-ductility";
 import { legacyN4Labels } from "./reference/legacy-n4-labels";
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
@@ -19,7 +20,7 @@ import { suggestReinforcement } from "../src/domain/autodesign";
 describe("Coeficientes dos materiais — resistências em MPa", () => {
   // Resultados completos capturados antes desta alteração, no upstream 41c3a12.
   // A fixture mantém campos posteriores ausentes e normaliza os rótulos de N4,
-  // além dos metadados de coeficientes/ancoragem já normalizados anteriormente.
+  // além dos metadados anteriores e dos três ids/valores novos de ductilidade.
   it.each([
     [
       "friction",
@@ -72,7 +73,7 @@ describe("Coeficientes dos materiais — resistências em MPa", () => {
         "anchorWeldedBar",
       ]);
       const raw = JSON.stringify(
-        legacyN4Labels(calculate(legacy)),
+        legacyN4Labels(withoutAddedDuctility(calculate(legacy))),
         (key, value) =>
           metadata.has(key)
             ? undefined

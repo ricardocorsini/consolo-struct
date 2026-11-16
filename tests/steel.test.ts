@@ -1,3 +1,4 @@
+import { withoutAddedDuctility } from "./reference/without-added-ductility";
 import { legacyN4Labels } from "./reference/legacy-n4-labels";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -118,13 +119,14 @@ describe("Regressão capturada no upstream e903617, antes da integração de cla
       p.design.bond = "poor";
       // Mesmo projeto capturado antes do recorte; preserve o hash integral,
       // números/fingerprint preservados; somente rótulos públicos são normalizados
-      // pelo helper documentado de N4. Campo ausente usa keep.
+      // pelo helper de N4; removem-se apenas os ids/valores novos de ductilidade.
+      // Campo ausente usa keep.
       delete (p.design as Partial<typeof p.design>).excessConcrete;
       delete (p.rebar as Partial<typeof p.rebar>).stirrupBranches;
       delete (p.rebar as Partial<typeof p.rebar>).constructiveDiameter;
       delete (p.design as Partial<typeof p.design>).gammaNPolicy;
       delete (p.design as Partial<typeof p.design>).gammaNJustification;
-      const result = legacyN4Labels(calculate(p));
+      const result = legacyN4Labels(withoutAddedDuctility(calculate(p)));
       expect(result.values.fbd).toBe(fbd);
       expect(result.values.lb).toBe(lb);
       expect(result.values.anchorRequired).toBe(lbNec);

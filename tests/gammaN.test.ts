@@ -1,3 +1,4 @@
+import { withoutAddedDuctility } from "./reference/without-added-ductility";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { calculate } from "../src/domain/engine";
@@ -179,6 +180,8 @@ describe("Política de γn e ações em N", () => {
 });
 
 describe("Padrão e assinaturas de entradas", () => {
+  // Os hashes anteriores à #4 excluem somente os três ids e intermediários novos.
+  // Estados globais, verificações antigas e assinatura continuam comparados.
   it.each([
     [
       "strut",
@@ -233,7 +236,7 @@ describe("Padrão e assinaturas de entradas", () => {
       delete legacy.design.gammaNJustification;
       expect(
         createHash("sha256")
-          .update(JSON.stringify(calculate(legacy)))
+          .update(JSON.stringify(withoutAddedDuctility(calculate(legacy))))
           .digest("hex"),
       ).toBe(hash);
     },
@@ -275,7 +278,7 @@ describe("Padrão e assinaturas de entradas", () => {
       // reverta somente os rótulos públicos, sem retirar números ou estados.
       delete legacy.rebar.stirrupBranches;
       delete legacy.rebar.constructiveDiameter;
-      const result = legacyN4Labels(calculate(legacy));
+      const result = legacyN4Labels(withoutAddedDuctility(calculate(legacy)));
       expect(result).not.toHaveProperty("gammaNDecision");
       expect(
         createHash("sha256").update(JSON.stringify(result)).digest("hex"),

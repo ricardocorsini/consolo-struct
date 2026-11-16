@@ -2246,6 +2246,7 @@ kbd {
   overflow-x: auto;
 }
 .calculation-table {
+  white-space: normal;
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
@@ -2746,6 +2747,12 @@ kbd {
 
 .arrangement-options label:has(input:disabled) {
   color: var(--muted);
+}
+
+@media (max-width: 700px) {
+  .ductility-memory-values {
+    grid-template-columns: 1fr;
+  }
 }
 
 .bar-tag.N4 {

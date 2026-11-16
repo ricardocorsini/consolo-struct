@@ -4,6 +4,9 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Acrescenta `ductilityXd`, `maxSteel` e `plasticRotation` aos modelos de bielas e tirantes e atrito-cisalhamento: x/d da seção, As ≤ 4% b h e rotação plástica do nó, com limites 0,45/0,35 e λ por fck. As referências são as citadas no GN Corbel, ainda sem conferência independente dos textos ABNT.
+- Rotação com radicando negativo falha como **sem solução**, sem sentinela numérico. O limite permanece visível; x e a razão sem raiz real são omitidos dos valores. A falta de raiz governa o envelope mesmo sobre uma falha finita em outra combinação. A nota de ductilidade do atrito é preservada.
+- Memória, PDF, cálculo auditável e CSV registram valores, fórmulas, referências e rastreabilidade por combinação. A sugestão trata as três verificações como restrições. Não há mudança no esquema do projeto, nas fórmulas anteriores nem nos resultados de viga em balanço.
 - Corrige a interferência física N3/N3G do PR #41: grampo em plano longitudinal próprio, com altura recalculada, projeção identificada na seção e quantitativos coerentes. Reutiliza a folga livre de N3; arranjos sem espaço recebem erro impeditivo de interferência, folga ou cobrimento, sem alterar demanda, passo ou quantidade de ramos.
 
 - N3 admite 2 ou 4 ramos efetivos por posição; quatro ramos detalham um estribo fechado externo e um grampo interno da mesma bitola. A área fornecida e a sugestão usam a quantidade de ramos, preservando demanda e espaçamento longitudinal.
