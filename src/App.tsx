@@ -1235,7 +1235,7 @@ export default function App() {
                 : modal === "export"
                   ? "PDF e CSV recalculam os dados atuais. DXF e SVG são geométricos."
                   : modal === "about"
-                    ? "Editor paramétrico 2D/3D · versão 0.7.1 · detalhamento e quadro de aço."
+                    ? "Editor paramétrico 2D/3D · versão 0.8.0 · detalhamento e quadro de aço."
                     : modal === "delete"
                       ? `${p.name} será removido. Você poderá desfazer esta ação.`
                       : "Estas informações ficam salvas no arquivo do projeto."}
@@ -1618,7 +1618,7 @@ export default function App() {
                 <p className="about-stack">
                   Tauri 2 · React · TypeScript · SVG
                   <br />
-                  Código aberto sob licença MIT · v0.7.1
+                  Código aberto sob licença MIT · v0.8.0
                 </p>
                 <button
                   className="button"

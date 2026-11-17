@@ -4,6 +4,10 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+## 0.8.0 · 2026-11-16
+
+Reúne as mudanças integradas à master desde a 0.7.1. Instaladores Windows/Linux e notas usadas no manifesto assinado seguem o publicador central. [Notas de publicação](.github/release-notes/v0.8.0.md).
+
 - Integra a contribuição de @guilhermeperotoni na PR #46, preservando os commits originais. Corrige a detecção do Launcher Linux nas pastas por versão e a exclusividade do pacote entre download e instalação, incluindo a transferência da proteção ao instalador Windows.
 - Verifica atualizações ao abrir o aplicativo, inclusive por atalho e sem o Struct Launcher (issue #45). A consulta usa o catálogo assinado do OpenStruct (Ed25519, chaves fixadas), seleciona só versões estáveis mais novas do `consolostruct` com pacote assinado para o sistema, e mostra versão em execução, oferecida e novidades com Atualizar e Agora não. Nada é baixado, instalado ou reiniciado sem ação explícita; o trabalho é protegido antes do reinício. Instalações do Launcher são encaminhadas a ele; NSIS e AppImage independentes se atualizam no lugar; .deb e executáveis avulsos recebem o caminho seguro. Veja [docs/ATUALIZACOES.md](docs/ATUALIZACOES.md).
 
