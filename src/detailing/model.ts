@@ -362,14 +362,14 @@ export function buildRebarGeometry(
   const back = hook?.projection ?? q.supportAnchorLength;
   const hookTail = hook?.tail ?? 0;
   /** Support hook of N1 in the vertical plane of one leg (as in Detail.hookExtra). */
-  const supportHook = (startX: number, depth: number, radius: number) =>
+  const supportHook = (startX: number, depth: number) =>
     roundedPath(
       [
         { x: startX, y: depth },
-        { x: startX - radius, y: depth },
-        { x: startX - radius, y: depth + radius + hookTail },
+        { x: startX - mainR, y: depth },
+        { x: startX - mainR, y: depth + mainR + hookTail },
       ],
-      radius,
+      mainR,
     );
   if (!beam && back > g.columnWidth - g.cover - (hook ? r.tieDiameter / 2 : 0))
     issue(
@@ -484,6 +484,8 @@ export function buildRebarGeometry(
             "tie-real-pitch",
             "A distância real entre os ramos da alça ultrapassa o limite em planta. Use mais alças por camada ou reveja a largura.",
           );
+        const startX = -back + (hook ? mainR : 0);
+        const supportPath = hook ? supportHook(startX, row.y) : null;
         for (let i = 0; i < loops; i++) {
           const width = outerWidth - 2 * i * nestingPitch;
           if (width < 2 * radius) {
@@ -493,7 +495,6 @@ export function buildRebarGeometry(
             );
             continue;
           }
-          const startX = -back + (q.supportAnchor === "hook" ? mainR : 0);
           const path = roundedPath(
             [
               { x: startX, y: 0 },
@@ -503,10 +504,6 @@ export function buildRebarGeometry(
             ],
             radius,
           );
-          const hookExtra =
-            q.supportAnchor === "hook"
-              ? 2 * ((Math.PI * mainR) / 2 + hookTail)
-              : 0;
           const inset = (g.width - width) / 2;
           add({
             family: "tie",
@@ -518,7 +515,7 @@ export function buildRebarGeometry(
             width,
             height: mainFront + back,
             hookTail: q.supportAnchor === "hook" ? hookTail : 0,
-            hookExtra,
+            hookExtra: supportPath ? 2 * supportPath.length : 0,
             note: `Camada ${layer + 1}; 2 ramos por alça${q.supportAnchor === "hook" ? "; 2 ganchos de 90° fora do plano" : "; ancoragem reta no suporte"}`,
             spacing: null,
             anchorage: [
@@ -529,14 +526,9 @@ export function buildRebarGeometry(
             instances: [
               instance([
                 placed("xy", row.y, translatePath(path, 0, inset)),
-                ...(q.supportAnchor === "hook"
+                ...(supportPath
                   ? [inset, g.width - inset].map((v) =>
-                      placed(
-                        "xz",
-                        v,
-                        supportHook(startX, row.y, mainR),
-                        "hook",
-                      ),
+                      placed("xz", v, supportPath, "hook"),
                     )
                   : []),
               ]),

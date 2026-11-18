@@ -22,10 +22,12 @@ export const escapeXml = (s: string) =>
       })[c]!,
   );
 const n = (v: number) => Number(v.toFixed(5));
+// The sheet uses cm. Retain sub-micrometre parity with the editor's coordinates.
+const svgCoordinate = (v: number) => Number(v.toFixed(9));
 export function entitySvg(e: Entity): string {
   const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${e.layer === "ARMADURAS" ? 0.4 : e.layer === "FORMAS" ? 0.25 : 0.13}"`;
   if (e.type === "line")
-    return `<line x1="${n(e.a.x)}" y1="${n(e.a.y)}" x2="${n(e.b.x)}" y2="${n(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
+    return `<line x1="${svgCoordinate(e.a.x)}" y1="${svgCoordinate(e.a.y)}" x2="${svgCoordinate(e.b.x)}" y2="${svgCoordinate(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   if (e.type === "arc") {
     const a = {
       x: e.center.x + e.radius * Math.cos(e.start),
@@ -35,7 +37,7 @@ export function entitySvg(e: Entity): string {
       x: e.center.x + e.radius * Math.cos(e.start + e.sweep),
       y: e.center.y + e.radius * Math.sin(e.start + e.sweep),
     };
-    return `<path d="M${n(a.x)} ${n(a.y)} A${n(e.radius)} ${n(e.radius)} 0 ${Math.abs(e.sweep) > Math.PI ? 1 : 0} ${e.sweep > 0 ? 1 : 0} ${n(b.x)} ${n(b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
+    return `<path d="M${svgCoordinate(a.x)} ${svgCoordinate(a.y)} A${svgCoordinate(e.radius)} ${svgCoordinate(e.radius)} 0 ${Math.abs(e.sweep) > Math.PI ? 1 : 0} ${e.sweep > 0 ? 1 : 0} ${svgCoordinate(b.x)} ${svgCoordinate(b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   }
   if (e.type === "circle")
     return `<circle cx="${n(e.center.x)}" cy="${n(e.center.y)}" r="${n(e.radius)}" ${common}/>`;

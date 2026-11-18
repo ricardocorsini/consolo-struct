@@ -1,5 +1,5 @@
 import type { Piece } from "../domain/model";
-import type { BarPath, Point } from "./geometry";
+import { samplePath, type BarPath, type Point } from "./geometry";
 import type { Bar, BarFamily, Detail } from "./model";
 import {
   intersectSectionX,
@@ -113,16 +113,7 @@ export function elevationTieBars(_p: Piece, detail: RebarSource) {
 }
 
 export function elevationTiePaths(p: Piece, detail: Detail): Point[][] {
-  return elevationTieBars(p, detail).map(({ path }) =>
-    path.segments.flatMap((s, i) => {
-      if (s.type === "line") return i ? [s.b] : [s.a, s.b];
-      const pts = Array.from({ length: 25 }, (_, k) => ({
-        x: s.center.x + s.radius * Math.cos(s.start + (s.sweep * k) / 24),
-        y: s.center.y + s.radius * Math.sin(s.start + (s.sweep * k) / 24),
-      }));
-      return i ? pts.slice(1) : pts;
-    }),
-  );
+  return elevationTieBars(p, detail).map(({ path }) => samplePath(path, 24));
 }
 
 /** Bars cut by the transverse plane `sectionX`, grouped for the renderers.

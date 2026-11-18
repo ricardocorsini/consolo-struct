@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { newPiece, fingerprint } from "../src/domain/model";
 import { cantileverFixture, shortFixture } from "./fixtures";
 import { buildDetail } from "../src/detailing/model";
+import { partPoints3 } from "../src/detailing/rebarPlacement";
 import { tieLayout } from "../src/domain/engine";
 import { upperStitchLayout } from "../src/domain/theory";
 import { buildSceneModel } from "../src/visualization/model3d";
@@ -121,6 +122,57 @@ describe("Geometria técnica 3D", () => {
       );
     }
   });
+  it.each(["loop", "welded"] as const)(
+    "representa cada ramo de N1 (%s) com a mesma curva e ponta nas duas camadas",
+    (frontAnchor) => {
+      const p = shortFixture();
+      p.design.frontAnchor = frontAnchor;
+      p.design.tieLayers = 2;
+      p.design.supportAnchor = "hook";
+      p.detailing.supportHookProjection = 600;
+      p.detailing.supportHookTail = 128;
+      const instances = buildDetail(p)
+        .bars.filter((bar) => bar.family === "tie")
+        .flatMap((bar) => bar.instances)
+        .sort((a, b) => a.order - b.order);
+      const parts = instances.flatMap((instance) => instance.parts);
+      const ties = buildSceneModel(p).steel.filter((bar) => bar.id === "N1");
+      expect(ties).toHaveLength(frontAnchor === "loop" ? 6 : 4);
+      const tailStartDepths: number[] = [];
+      for (const [i, part] of parts.entries()) {
+        expect(ties[i].points).toEqual(
+          partPoints3(part).map(({ x, y, z }) => [
+            x,
+            y - p.geometry.width / 2,
+            -z,
+          ]),
+        );
+        if (part.plane !== "xz") continue;
+        const points = ties[i].points;
+        expect(points.length).toBeGreaterThan(24);
+        const [bottom, top] =
+          frontAnchor === "loop"
+            ? points.slice(-2).reverse()
+            : points.slice(0, 2);
+        expect(top[0]).toBeCloseTo(bottom[0], 9);
+        expect(top[1]).toBe(bottom[1]);
+        expect(top[2] - bottom[2]).toBeCloseTo(128, 8);
+        tailStartDepths.push(top[2]);
+      }
+      expect(tailStartDepths).toHaveLength(4);
+      expect(new Set(tailStartDepths).size).toBe(2);
+      p.design.supportAnchor = "straight";
+      const straight = buildSceneModel(p).steel.filter(
+        (bar) => bar.id === "N1",
+      );
+      expect(straight).toHaveLength(frontAnchor === "loop" ? 2 : 4);
+      expect(
+        straight.every(({ points }) =>
+          points.every((pt) => pt[2] === points[0][2]),
+        ),
+      ).toBe(true);
+    },
+  );
   it("gera materiais e grupos finitos nas duas opções de renderização", () => {
     const m = buildSceneModel(newPiece(1));
     for (const lightweight of [false, true]) {

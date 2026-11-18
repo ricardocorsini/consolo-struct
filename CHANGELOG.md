@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- A elevação desenha o arco exato do gancho de N1 a partir da geometria usada na prancha e no 3D (issue #68). O comprimento desenvolvido da alça inclui os percursos dos dois ganchos no suporte.
+
 - Peças novas adotam N1 com barra transversal soldada de mesma bitola na ponta e gancho de 90° no suporte (issue #67). O gancho faz parte da forma de fabricação. A edição sincroniza as bitolas quando iguais, e a sugestão recalcula TS em cada candidato soldado. Os arquivos salvos preservam a ancoragem registrada.
 
 - Corrige o cobrimento frontal de N4 (issue #66). No consolo convencional, a face externa da barra fica à distância de cobrimento da ponta. No modo viga, a dobra se posiciona a partir da perna frontal interna de N1. As vistas, a prancha e o quadro usam o percurso atualizado. O CSV geral e o PDF da memória exibem o comprimento desenvolvido e o de corte.

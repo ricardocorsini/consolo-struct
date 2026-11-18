@@ -4,6 +4,7 @@ import { sectionBars } from "../../src/detailing/projection";
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { exampleProject, number, type Piece } from "../../src/domain/model";
+import { mandrelDiameter } from "../../src/detailing/geometry";
 import { tieLayout } from "../../src/domain/engine";
 import {
   reactionGeometry,
@@ -11,6 +12,7 @@ import {
   upperStitchLayout,
 } from "../../src/domain/theory";
 import { bottomDepth, concreteProfile } from "../../src/domain/profile";
+import { shortFixture } from "../fixtures";
 test("edita, desfaz, salva, reabre, revisa e exporta", async ({
   page,
 }, testInfo) => {
@@ -193,6 +195,85 @@ async function editSectionField(field: Locator, value: string) {
   await field.fill(value);
   await field.press("Enter");
 }
+
+test("elevação e prancha acompanham o gancho de N1 ao editar ancoragem e bitola", async ({
+  page,
+}) => {
+  const p = shortFixture();
+  p.design.frontAnchor = "welded";
+  p.design.weldedBarDiameter = p.rebar.tieDiameter;
+  p.detailing.supportHookProjection = 600;
+  p.detailing.supportHookTail = 128;
+  await page.addInitScript(
+    (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+    JSON.stringify({ ...exampleProject(), pieces: [p] }),
+  );
+  await page.goto("/");
+  const tabs = page.locator(".document-tabs");
+  const open = (name: string) =>
+    tabs.getByRole("button", { name, exact: true }).click();
+  const tie = page.locator(".steel-N1 path").first();
+  const sheet = page.locator(".detail-canvas");
+  const anchor = page.getByLabel("Ancoragem do detalhe");
+  await expect(tie).toHaveAttribute("d", /^M[^A]+$/);
+  await open("Detalhamento");
+  await anchor.selectOption("hook");
+
+  const checkHook = async () => {
+    const phi = p.rebar.tieDiameter;
+    const radius = (mandrelDiameter(phi, p.materials.fyk) + phi) / 2;
+    const x = -p.detailing.supportHookProjection;
+    const y = tieLayout(p).rows[0].y + radius + p.detailing.supportHookTail;
+    await open(`${p.name} · Elevação`);
+    await expect(tie).toHaveAttribute("d", /A.*L/);
+    const d = (await tie.getAttribute("d"))!;
+    const [r] = d.split("A")[1].split(" ").map(Number);
+    const [endX, endY] = d.split("L").at(-1)!.split(" ").map(Number);
+    const scale = 480 / (p.geometry.columnWidth + p.geometry.length);
+    expect(r / scale).toBeCloseTo(radius, 8);
+    expect((endX - 480) / scale).toBeCloseTo(x, 8);
+    expect((endY - 185) / scale).toBeCloseTo(y, 8);
+
+    await open("Detalhamento");
+    const leg = sheet.locator("line.detail-ARMADURAS").nth(1);
+    await expect
+      .poll(async () => {
+        const [x2, y2] = await leg.evaluate((line) =>
+          ["x2", "y2"].map((key) => Number(line.getAttribute(key))),
+        );
+        return Math.hypot((x2 - 105) * 10 - x, (y2 - 52) * 10 - y);
+      })
+      .toBeLessThan(1e-6);
+    const sheetArc = sheet.locator("path.detail-ARMADURAS").first();
+    await expect(sheetArc).toHaveAttribute(
+      "d",
+      new RegExp(` A${radius / 10} `),
+    );
+  };
+
+  await checkHook();
+  await editSectionField(
+    page.getByLabel("Projeção do gancho no suporte"),
+    "65",
+  );
+  p.detailing.supportHookProjection = 650;
+  await checkHook();
+  await editSectionField(page.getByLabel("Ponta reta do gancho"), "16");
+  p.detailing.supportHookTail = 160;
+  await checkHook();
+  await open(`${p.name} · Elevação`);
+  await page
+    .locator(".inspector-tabs")
+    .getByRole("button", { name: "Editar armaduras", exact: true })
+    .click();
+  await page.getByLabel("Diâmetro N1").selectOption("20");
+  p.rebar.tieDiameter = 20;
+  p.design.weldedBarDiameter = 20;
+  await checkHook();
+  await anchor.selectOption("straight");
+  await open(`${p.name} · Elevação`);
+  await expect(tie).toHaveAttribute("d", /^M[^A]+$/);
+});
 
 async function expectInternalStitches(page: Page, piece: Piece) {
   const section = page.getByRole("group", {

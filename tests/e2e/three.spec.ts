@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { exampleProject } from "../../src/domain/model";
+import { shortFixture } from "../fixtures";
 const open3d = async (page: import("@playwright/test").Page) => {
   await page
     .locator(".document-tabs")
@@ -203,6 +205,79 @@ test("continua interativo no modo compatível quando WebGL está indisponível",
   await page.waitForTimeout(200);
   expect(Number(await view.getAttribute("data-frame"))).toBe(frame);
   expect(errors).toEqual([]);
+});
+test("3D mostra e atualiza os dois ganchos de cada alça de N1", async ({
+  page,
+}) => {
+  const p = shortFixture();
+  p.design.tieLayers = 2;
+  p.detailing.supportHookProjection = 600;
+  p.detailing.supportHookTail = 128;
+  await page.addInitScript(
+    (project) => {
+      localStorage.setItem("consolostruct.project.v1", project);
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (
+        contextId: string,
+        ...args: unknown[]
+      ) {
+        if (contextId === "webgl2") return null;
+        return Reflect.apply(original, this, [contextId, ...args]);
+      } as typeof original;
+    },
+    JSON.stringify({ ...exampleProject(), pieces: [p] }),
+  );
+  await page.goto("/");
+  const detail = () =>
+    page
+      .locator(".document-tabs")
+      .getByRole("button", {
+        name: "Detalhamento",
+        exact: true,
+      })
+      .click();
+  await detail();
+  await page.getByLabel("Ancoragem do detalhe").selectOption("hook");
+  await open3d(page);
+  await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
+  const steel = page
+    .getByTestId("viewport-3d")
+    .locator('svg.three-surface path[style*="stroke:rgb(36,106,194)"]');
+  // The frontal camera sees both physical legs of each U at the same depth.
+  const verticalLengths = () =>
+    steel.evaluateAll((paths) =>
+      paths.flatMap((path) =>
+        Array.from(
+          (path.getAttribute("d") ?? "").matchAll(
+            /M([^,]+),([^L]+)L([^,]+),([^M]+)/g,
+          ),
+          ([, x1, y1, x2, y2]) =>
+            Math.abs(Number(x2) - Number(x1)) < 1e-3
+              ? Math.abs(Number(y2) - Number(y1))
+              : 0,
+        ).filter((length) => length > 5),
+      ),
+    );
+  await expect.poll(async () => (await verticalLengths()).length).toBe(4);
+  const initial = await verticalLengths();
+  await detail();
+  const tail = page.getByLabel("Ponta reta do gancho");
+  await tail.fill("19,2");
+  await tail.press("Enter");
+  await open3d(page);
+  await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
+  await expect
+    .poll(async () => {
+      const lengths = await verticalLengths();
+      return lengths.length === 4 ? lengths[0] / initial[0] : 0;
+    })
+    .toBeCloseTo(1.5, 4);
+  await detail();
+  await page.getByLabel("Ancoragem do detalhe").selectOption("straight");
+  await open3d(page);
+  await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
+  await expect(steel.first()).toBeAttached();
+  await expect.poll(verticalLengths).toHaveLength(0);
 });
 test("trocas entre vistas descartam a cena anterior e preservam o editor", async ({
   page,

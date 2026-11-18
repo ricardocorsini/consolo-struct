@@ -1,4 +1,9 @@
-import { samplePath } from "../detailing/geometry";
+import {
+  at,
+  samplePath,
+  type BarPath,
+  type Point,
+} from "../detailing/geometry";
 import { projectElevation, rebarModel } from "../detailing/rebarModel";
 import { tieLayout } from "../domain/engine";
 import { reactionGeometry, stirrupLayout } from "../domain/theory";
@@ -219,6 +224,22 @@ export default function Drawing({
     : "";
   const polyline = (pts: { x: number; y: number }[]) =>
     pts.map((v, i) => `${i ? "L" : "M"}${X(v.x)} ${Y(v.y)}`).join("");
+  const svgPoint = (point: Point) => `${X(point.x)} ${Y(point.y)}`;
+  const barPathData = (path: BarPath) =>
+    path.segments
+      .map((segment, i) => {
+        if (segment.type === "line")
+          return `${i === 0 ? `M${svgPoint(segment.a)}` : ""}L${svgPoint(segment.b)}`;
+        const start = at(segment.center, segment.radius, segment.start);
+        const end = at(
+          segment.center,
+          segment.radius,
+          segment.start + segment.sweep,
+        );
+        const radius = segment.radius * s;
+        return `${i === 0 ? `M${svgPoint(start)}` : ""}A${radius} ${radius} 0 ${Math.abs(segment.sweep) > Math.PI ? 1 : 0} ${segment.sweep > 0 ? 1 : 0} ${svgPoint(end)}`;
+      })
+      .join("");
   const groupProps = (id: string) => ({
     className: `steel steel-${id} ${selectedBar === id ? "steel-selected" : ""}`,
     role: "button",
@@ -632,7 +653,7 @@ export default function Drawing({
                   {elevationTies.map(({ bar, path }, i) => (
                     <path
                       key={i}
-                      d={polyline(samplePath(path, 24))}
+                      d={barPathData(path)}
                       data-mark={bar.mark}
                       data-quantity={bar.quantity}
                     >

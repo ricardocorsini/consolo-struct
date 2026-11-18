@@ -90,12 +90,12 @@ test("elevação conserva o gancho de suporte e a penetração das costuras", as
   const { values } = calculate(p);
   await seed(page, p);
   const tie = page.locator(".steel-N1 path").first();
-  const coords = (await tie.getAttribute("d"))!
-    .match(/-?\d+(?:\.\d+)?/g)!
-    .map(Number);
+  await expect(tie).toHaveAttribute("d", /A/);
+  const height = await tie.evaluate(
+    (path) => (path as SVGPathElement).getBBox().height,
+  );
   const scale = Math.min(480 / 1350, 340 / 580);
-  const ys = coords.filter((_, i) => i % 2 === 1);
-  expect(Math.max(...ys)).toBeGreaterThan(ys[0] + values.anchorN1_tail * scale);
+  expect(height).toBeGreaterThan(values.anchorN1_tail * scale);
   const stitch = page.locator(".steel-N2 path").first();
   const start = Number(
     (await stitch.getAttribute("d"))!.match(/^M(-?[\d.]+)/)![1],
