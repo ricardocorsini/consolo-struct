@@ -3,10 +3,16 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as engine from "../src/domain/engine";
 import { decodeProject, exampleProject } from "../src/domain/model";
+import { beamTieBends } from "../src/detailing/beam";
 import { connectionGeometry, pinCenters } from "../src/detailing/connections";
 import { pieceDrawing } from "../src/detailing/drawing";
 import { entitySvg } from "../src/detailing/exports";
-import { at, mandrelDiameter, pathLength } from "../src/detailing/geometry";
+import {
+  at,
+  mandrelDiameter,
+  pathLength,
+  pathLengthAfterX,
+} from "../src/detailing/geometry";
 import { buildDetail } from "../src/detailing/model";
 import { rebarModel } from "../src/detailing/rebarModel";
 import {
@@ -248,6 +254,7 @@ describe("Gancho de N1 no suporte (#68)", () => {
         2;
       const originX = p.geometry.columnWidth / 10 + 15;
       const originY = 52;
+      const pitch = beamTieBends(p, 1).back - beamTieBends(p, 0).back;
       expect(ties).toHaveLength(2);
       let offset = 0;
       for (const [i, { bar, path }] of ties.entries()) {
@@ -271,6 +278,10 @@ describe("Gancho de N1 no suporte (#68)", () => {
         expect(bend.radius).toBe(radius);
         expect(bend.sweep).toBeCloseTo(-Math.PI / 2, 10);
         expect(tail.a.x).toBeCloseTo(tail.b.x, 10);
+        expect(tail.b.x).toBeCloseTo(
+          -p.detailing.supportHookProjection + i * pitch,
+          8,
+        );
         expect(tail.b.y - tail.a.y).toBeCloseTo(
           p.detailing.supportHookTail,
           10,
@@ -296,6 +307,11 @@ describe("Gancho de N1 no suporte (#68)", () => {
         expect(r * 10).toBeCloseTo(bend.radius, 7);
         expect((bx - originX) * 10).toBeCloseTo(tail.a.x, 7);
         expect((by - originY) * 10).toBeCloseTo(tail.a.y, 7);
+        expect(bar.anchorage[0].projection).toBeCloseTo(-tail.b.x, 9);
+        expect(bar.anchorage[0].length).toBeCloseTo(
+          path.length - pathLengthAfterX(path, 0),
+          9,
+        );
         for (const instance of bar.instances) {
           const developed = instance.parts.reduce(
             (length, part) => length + pathLength(part.path.segments),
@@ -309,6 +325,10 @@ describe("Gancho de N1 no suporte (#68)", () => {
         /class="steel steel-N1[^>]*>[\s\S]*?<\/g>/,
       )![0];
       expect(n1.match(/A[\d.]+ [\d.]+ 0 0 0 /g)).toHaveLength(2);
+      expect(ties[0].bar.exactLength - ties[1].bar.exactLength).toBeCloseTo(
+        frontAnchor === "loop" ? 2 * pitch : pitch,
+        9,
+      );
 
       p.design.supportAnchor = "straight";
       const straight = elevationTieBars(p, buildDetail(p));
@@ -316,7 +336,10 @@ describe("Gancho de N1 no suporte (#68)", () => {
       for (const { path } of straight) {
         expect(path.segments).toMatchObject([{ type: "line" }]);
         const [line] = path.segments;
-        if (line.type === "line") expect(line.a.y).toBe(line.b.y);
+        if (line.type === "line") {
+          expect(line.a.y).toBe(line.b.y);
+          expect(line.b.x).toBe(-p.design.supportAnchorLength);
+        }
       }
     },
   );

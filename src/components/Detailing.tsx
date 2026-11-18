@@ -374,6 +374,13 @@ function Detailing({
                     value={piece.detailing.supportHookProjection}
                     onChange={(v) => patch({ supportHookProjection: v })}
                   />
+                  {piece.design.tieLayers > 1 && (
+                    <p className="detail-tip">
+                      A projeção manual mede o eixo do gancho da primeira
+                      camada. As camadas seguintes ficam mais próximas da face
+                      do pilar.
+                    </p>
+                  )}
                   <NumericField
                     label="Ponta reta do gancho"
                     unit="cm"

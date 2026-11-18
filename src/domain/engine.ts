@@ -10,6 +10,7 @@ import {
   elDebsSimplified,
   reactionGeometry,
   stirrupLayout,
+  tieLayerSpacing,
   upperStitchLayout,
 } from "./theory";
 import {
@@ -145,7 +146,7 @@ export function anchorageAlpha(
 }
 export function tieLayout(p: Piece) {
   const { geometry: g, rebar: r, design: d } = p;
-  const spacingVertical = Math.max(20, r.tieDiameter, 0.5 * d.aggregate);
+  const spacingVertical = tieLayerSpacing(p);
   const first =
     g.cover + r.stirrupDiameter + r.tieDiameter / 2 + d.extraTopCover;
   const rows = Array.from({ length: d.tieLayers }, (_, i) => ({

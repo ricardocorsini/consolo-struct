@@ -54,7 +54,7 @@ export function prepareAnchorageGeometry(
     checkInterferences: false,
   });
   return {
-    deepestTie: layout.maxDepth,
+    tieRows: layout.rows,
     concrete,
     upper: upper.end >= upper.start ? upper.levels : [],
     lower: lower.levels,
@@ -188,30 +188,48 @@ export function addAnchorageChecks(
     const radius = (mandrel + r.tieDiameter) / 2;
     const hook = supportHookGeometry(
       p,
-      geometry.deepestTie,
+      geometry.tieRows,
       radius,
       Number.isFinite(v.anchorRequired) ? v.anchorRequired : 0,
     );
-    write("N1", { ...tieData, ...hook, adopted: hook.projection, mandrel });
+    // Projections and height decrease with each layer. Rear cover is
+    // controlled by the first layer, and the other limits by the last.
+    const outermost = hook.layers[0]!;
+    const innermost = hook.layers.at(-1)!;
+    const byLayer = hook.layers
+      .map(
+        ({ layer, projection, available, developed }) =>
+          `Camada ${layer + 1} · eixo a ${mm(projection)} · disponível ${mm(available)} · percurso no suporte ${mm(developed)}.`,
+      )
+      .join(" ");
+    write("N1", {
+      ...tieData,
+      ...hook,
+      ...innermost,
+      adopted: innermost.projection,
+      mandrel,
+    });
     if (Number.isFinite(v.anchorRequired))
       replaceTieCheck(
         v.anchorRequired,
-        hook.available,
-        `Projeção até o exterior da dobra, limitada pelo suporte e pelo comprimento informado. Eixo da dobra a ${mm(hook.projection)} · percurso desenvolvido ${mm(hook.developed)}.`,
+        innermost.available,
+        `Projeção até o exterior da dobra, limitada pelo suporte e pelo comprimento informado. ${byLayer}`,
       );
     compare(
       "anchorN1HookBend",
       "N1 · espaço horizontal da dobra",
       radius + r.tieDiameter / 2,
-      hook.available,
+      innermost.available,
       "projeção exterior ≥ R + φ/2",
+      `Menor projeção disponível na camada ${innermost.layer + 1}.`,
     );
     compare(
       "anchorN1HookCover",
       "N1 · cobrimento posterior do gancho",
-      hook.outerProjection,
+      outermost.outerProjection,
       hook.declared,
       "projeção exterior ≤ min(lb declarado, P − c)",
+      `Maior projeção exterior na camada ${outermost.layer + 1}.`,
     );
     compare(
       "anchorN1HookTail",
@@ -224,8 +242,9 @@ export function addAnchorageChecks(
       "anchorN1HookHeight",
       "N1 · altura disponível para a ponta",
       hook.tail,
-      hook.tailAvailable,
-      "ponta ≤ h − c − profundidade do tirante − R + φ/2",
+      innermost.tailAvailable,
+      "ponta ≤ h − c − profundidade do eixo de N1 − R",
+      `Menor altura disponível na camada ${innermost.layer + 1}.`,
     );
   } else {
     write("N1", {

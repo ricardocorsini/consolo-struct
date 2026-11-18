@@ -29,6 +29,7 @@ export function requiredAnchorage(
 import { materialProperties, materialSafety } from "./materialSafety";
 import type { Piece } from "./model";
 import { bondCoefficientEta1, steelClassOf } from "./steel";
+import { tieLayerSpacing } from "./theory";
 
 export const anchorageFamilies = [
   "N1",
@@ -104,11 +105,11 @@ export function supportLimits(p: Piece, diameter: number) {
   return { nominal, axis: Math.max(0, nominal - diameter / 2) };
 }
 
-/** The entered projection is on the axis, whereas the available projection
- * of a hooked tie reaches the outside of the vertical leg. */
+/** The manual projection sets the axis in the outermost layer. In automatic
+ * mode the innermost occupied layer sets the minimum required reach. */
 export function supportHookGeometry(
   p: Piece,
-  deepestTie: number,
+  rows: readonly { count: number; y: number }[],
   radius: number,
   required: number,
 ) {
@@ -116,26 +117,42 @@ export function supportHookGeometry(
   const diameter = r.tieDiameter;
   const limits = supportLimits(p, diameter);
   const declared = Math.min(q.supportAnchorLength, limits.nominal);
-  const wanted = Math.max(radius, required - diameter / 2);
-  const projection =
+  const pitch = diameter + tieLayerSpacing(p);
+  const occupied = rows
+    .map((row, layer) => ({ ...row, layer }))
+    .filter(({ count }) => count > 0);
+  const lastOffset = (occupied.at(-1)?.layer ?? 0) * pitch;
+  const wanted = Math.max(radius, required - diameter / 2) + lastOffset;
+  const firstProjection =
     s.supportHookProjection ||
     Math.max(0, Math.min(wanted, declared - diameter / 2));
   const tailMinimum = 8 * diameter;
   const tail = s.supportHookTail || tailMinimum;
-  const outerProjection = projection + diameter / 2;
+  const layers = occupied.map(({ layer, y }) => {
+    const projection = firstProjection - layer * pitch;
+    const outerProjection = projection + diameter / 2;
+    // Only the part of the bend beyond the face contributes to support length.
+    const developed =
+      projection > 0
+        ? Math.max(0, projection - radius) +
+          radius * Math.acos(Math.max(0, 1 - projection / radius)) +
+          tail
+        : 0;
+    return {
+      layer,
+      projection,
+      outerProjection,
+      available: Math.max(0, Math.min(declared, outerProjection)),
+      tailAvailable: Math.max(0, g.height - g.cover - y - radius),
+      developed,
+    };
+  });
   return {
     ...limits,
     declared,
-    projection,
-    outerProjection,
-    available: Math.max(0, Math.min(declared, outerProjection)),
     tail,
     tailMinimum,
-    tailAvailable: Math.max(
-      0,
-      g.height - g.cover - deepestTie - radius + diameter / 2,
-    ),
-    developed: Math.max(0, projection - radius) + (Math.PI * radius) / 2 + tail,
+    layers,
   };
 }
 

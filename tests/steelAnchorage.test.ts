@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate, materialProperties } from "../src/domain/engine";
+import { calculate, materialProperties, tieLayout } from "../src/domain/engine";
 import { basicAnchorage, requiredAnchorage } from "../src/domain/anchorage";
 import { suggestReinforcement } from "../src/domain/autodesign";
 import {
@@ -9,6 +9,7 @@ import {
 } from "../src/domain/model";
 import { bondCoefficientEta1, steelBondDescription } from "../src/domain/steel";
 import { closedStirrup, mandrelDiameter } from "../src/detailing/geometry";
+import { buildDetail } from "../src/detailing/model";
 import { toCalculationJson } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
 
@@ -78,6 +79,88 @@ describe("Ancoragem física por família", () => {
     const tight = calculate(p);
     expect(verification(tight, "anchorN1HookHeight")?.status).toBe("fail");
     expect(verification(tight, "anchorN1HookCover")?.status).toBe("fail");
+  });
+
+  it("reserva a projeção automática para as camadas ocupadas e verifica a mais interna", () => {
+    const p = shortFixture();
+    p.design.frontAnchor = "welded";
+    p.design.supportAnchor = "hook";
+    p.design.tieLayers = 2;
+    p.design.aggregate = 50;
+    p.geometry.columnWidth = 1500;
+    p.design.supportAnchorLength = 1400;
+    const detail = buildDetail(p);
+    const ties = detail.bars.filter((bar) => bar.family === "tie");
+    const inner =
+      detail.result.values.anchorN1_required - p.rebar.tieDiameter / 2;
+    const pitch = 41;
+    expect(verification(detail.result, "anchorage")?.status).toBe("pass");
+    expect(ties).toHaveLength(2);
+    expect(ties[0].anchorage[0].projection).toBeCloseTo(inner + pitch, 8);
+    expect(ties[1].anchorage[0].projection).toBeCloseTo(inner, 8);
+    expect(detail.result.values.anchorN1_adopted).toBeCloseTo(inner, 8);
+    expect(detail.result.values.anchorN1_developed).toBe(
+      ties[1].anchorage[0].length,
+    );
+
+    p.design.supportAnchorLength = detail.result.values.anchorN1_required + 20;
+    const limited = buildDetail(p);
+    const check = verification(limited.result, "anchorage")!;
+    expect(check.status).toBe("fail");
+    expect(check.capacity).toBeCloseTo(p.design.supportAnchorLength - pitch, 8);
+    expect(check.detail).toContain("Camada 1");
+    expect(check.detail).toContain("Camada 2");
+    expect(verification(limited.result, "anchorN1HookCover")?.status).toBe(
+      "pass",
+    );
+    expect(
+      limited.issues.find((issue) => issue.code === "hook-available")?.message,
+    ).toContain("Camada(s) 2.");
+
+    p.design.tieLayers = 4;
+    p.rebar.tieCount = 2;
+    const preview = buildDetail(p);
+    const radius =
+      (mandrelDiameter(p.rebar.tieDiameter, p.materials.fyk) +
+        p.rebar.tieDiameter) /
+      2;
+    expect(preview.result.status).toBe("invalid");
+    expect(
+      preview.bars
+        .filter((bar) => bar.family === "tie")
+        .map((bar) => bar.anchorage[0].projection),
+    ).toEqual([radius + pitch, radius]);
+  });
+
+  it("verifica o cobrimento na primeira camada e o espaço de dobra e ponta na interna", () => {
+    const p = shortFixture();
+    p.design.supportAnchor = "hook";
+    p.design.tieLayers = 2;
+    p.geometry.columnWidth = 650;
+    p.detailing.supportHookProjection = 620;
+    const phi = p.rebar.tieDiameter;
+    const radius = (mandrelDiameter(phi, p.materials.fyk) + phi) / 2;
+    const [top, bottom] = tieLayout(p).rows;
+    const height = p.geometry.height - p.geometry.cover - radius;
+    p.detailing.supportHookTail = height - top.y;
+
+    const tight = calculate(p);
+    const cover = verification(tight, "anchorN1HookCover")!;
+    expect(cover).toMatchObject({ status: "fail", demand: 628, capacity: 625 });
+    expect(cover.detail).toContain("camada 1");
+    const leg = verification(tight, "anchorN1HookHeight")!;
+    expect(leg.status).toBe("fail");
+    expect(leg.capacity).toBeCloseTo(height - bottom.y, 8);
+    expect(leg.detail).toContain("camada 2");
+
+    p.detailing.supportHookProjection = 60;
+    p.detailing.supportHookTail = 8 * phi;
+    const shortBend = buildDetail(p);
+    const bend = verification(shortBend.result, "anchorN1HookBend")!;
+    expect(bend).toMatchObject({ status: "fail", demand: 56, capacity: 32 });
+    expect(
+      shortBend.issues.find((issue) => issue.code === "hook-fit")?.message,
+    ).toContain("Camada(s) 2.");
   });
 
   it.each(["N2", "N2I"] as const)(

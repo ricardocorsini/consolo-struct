@@ -2,6 +2,7 @@ import { calculate, tieLayout } from "../domain/engine";
 import type { Piece } from "../domain/model";
 import { basicAnchorage, requiredAnchorage } from "../domain/anchorage";
 import { bondCoefficientEta1, steelClassOf } from "../domain/steel";
+import { tieLayerSpacing } from "../domain/theory";
 import {
   mandrelDiameter,
   pathLengthAfterX,
@@ -90,9 +91,9 @@ export function beamBarPositions(p: Piece, count: number, diameter: number) {
 
 /** Axes of the two vertical legs of an N1 layer. */
 export function beamTieBends(p: Piece, layer: number) {
-  const { geometry: g, design: q, rebar: r } = p;
+  const { geometry: g, rebar: r } = p;
   const phi = r.tieDiameter;
-  const offset = layer * (phi + Math.max(20, phi, 0.5 * q.aggregate));
+  const offset = layer * (phi + tieLayerSpacing(p));
   return {
     front: g.length - g.cover - phi / 2 - offset,
     back: -(g.columnWidth - g.cover - phi / 2) + offset,

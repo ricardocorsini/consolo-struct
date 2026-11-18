@@ -139,6 +139,7 @@ describe("Geometria técnica 3D", () => {
       const ties = buildSceneModel(p).steel.filter((bar) => bar.id === "N1");
       expect(ties).toHaveLength(frontAnchor === "loop" ? 6 : 4);
       const tailStartDepths: number[] = [];
+      const tailAxes: number[] = [];
       for (const [i, part] of parts.entries()) {
         expect(ties[i].points).toEqual(
           partPoints3(part).map(({ x, y, z }) => [
@@ -158,9 +159,11 @@ describe("Geometria técnica 3D", () => {
         expect(top[1]).toBe(bottom[1]);
         expect(top[2] - bottom[2]).toBeCloseTo(128, 8);
         tailStartDepths.push(top[2]);
+        tailAxes.push(bottom[0]);
       }
       expect(tailStartDepths).toHaveLength(4);
       expect(new Set(tailStartDepths).size).toBe(2);
+      expect(tailAxes).toEqual([-600, -600, -564, -564]);
       p.design.supportAnchor = "straight";
       const straight = buildSceneModel(p).steel.filter(
         (bar) => bar.id === "N1",

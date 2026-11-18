@@ -350,16 +350,14 @@ export function buildRebarGeometry(
     );
   const mainR = (mainD + r.tieDiameter) / 2;
   const mainFront = g.length - g.cover - r.tieDiameter / 2;
+  const anchorRequired =
+    designValues[anchorageKey("N1", "required")] ??
+    designValues.anchorRequired ??
+    0;
   const hook =
     !beam && q.supportAnchor === "hook"
-      ? supportHookGeometry(
-          p,
-          layout.maxDepth,
-          mainR,
-          designValues.anchorRequired ?? 0,
-        )
+      ? supportHookGeometry(p, layout.rows, mainR, anchorRequired)
       : null;
-  const back = hook?.projection ?? q.supportAnchorLength;
   const hookTail = hook?.tail ?? 0;
   /** Support hook of N1 in the vertical plane of one leg (as in Detail.hookExtra). */
   const supportHook = (startX: number, depth: number) =>
@@ -371,7 +369,10 @@ export function buildRebarGeometry(
       ],
       mainR,
     );
-  if (!beam && back > g.columnWidth - g.cover - (hook ? r.tieDiameter / 2 : 0))
+  const backExtent = hook
+    ? (hook.layers[0]?.outerProjection ?? 0)
+    : q.supportAnchorLength;
+  if (!beam && backExtent > g.columnWidth - g.cover)
     issue(
       "tie-back",
       "O tirante ultrapassa o cobrimento na face posterior do suporte.",
@@ -382,30 +383,26 @@ export function buildRebarGeometry(
         "hook-tail",
         "A ponta reta do gancho de 90° do tirante deve ter pelo menos 8 diâmetros.",
       );
-    if (hook.available + 1e-6 < (designValues.anchorRequired ?? 0))
+    const short = hook.layers.filter(
+      ({ available }) => available + 1e-6 < anchorRequired,
+    );
+    if (short.length)
       issue(
         "hook-available",
-        "A projeção do gancho é menor que a ancoragem necessária no suporte.",
+        `A projeção do gancho é menor que a ancoragem necessária no suporte. Camada(s) ${short.map(({ layer }) => layer + 1).join(", ")}.`,
       );
-    if (
-      hook.projection < mainR ||
-      hook.tail > hook.tailAvailable + 1e-6 ||
-      hook.outerProjection > hook.declared + 1e-6
-    )
+    const outside = hook.layers.filter(
+      ({ projection, tailAvailable, outerProjection }) =>
+        projection + 1e-6 < mainR ||
+        hook.tail > tailAvailable + 1e-6 ||
+        outerProjection > hook.declared + 1e-6,
+    );
+    if (outside.length)
       issue(
         "hook-fit",
-        "O gancho do tirante não cabe no trecho de suporte representado.",
+        `O gancho do tirante não cabe no trecho de suporte representado. Camada(s) ${outside.map(({ layer }) => layer + 1).join(", ")}.`,
       );
   }
-  const supportAnchorage = (): BarAnchorage =>
-    hook
-      ? {
-          end: "suporte",
-          type: "gancho de 90°",
-          length: hook.developed,
-          projection: hook.projection,
-        }
-      : { end: "suporte", type: "reta", length: back };
   if (!loopPinDefined(steel, r.tieDiameter))
     issue(
       "main-grade",
@@ -451,6 +448,16 @@ export function buildRebarGeometry(
         });
         return;
       }
+      const layerHook = hook?.layers[layer];
+      const back = layerHook?.projection ?? q.supportAnchorLength;
+      const supportAnchorage: BarAnchorage = layerHook
+        ? {
+            end: "suporte",
+            type: "gancho de 90°",
+            length: layerHook.developed,
+            projection: back,
+          }
+        : { end: "suporte", type: "reta", length: back };
       if (q.frontAnchor === "loop") {
         if (row.count % 2)
           issue(
@@ -484,8 +491,8 @@ export function buildRebarGeometry(
             "tie-real-pitch",
             "A distância real entre os ramos da alça ultrapassa o limite em planta. Use mais alças por camada ou reveja a largura.",
           );
-        const startX = -back + (hook ? mainR : 0);
-        const supportPath = hook ? supportHook(startX, row.y) : null;
+        const startX = -back + (layerHook ? mainR : 0);
+        const supportPath = layerHook ? supportHook(startX, row.y) : null;
         for (let i = 0; i < loops; i++) {
           const width = outerWidth - 2 * i * nestingPitch;
           if (width < 2 * radius) {
@@ -514,12 +521,12 @@ export function buildRebarGeometry(
             mandrel: d,
             width,
             height: mainFront + back,
-            hookTail: q.supportAnchor === "hook" ? hookTail : 0,
+            hookTail,
             hookExtra: supportPath ? 2 * supportPath.length : 0,
             note: `Camada ${layer + 1}; 2 ramos por alça${q.supportAnchor === "hook" ? "; 2 ganchos de 90° fora do plano" : "; ancoragem reta no suporte"}`,
             spacing: null,
             anchorage: [
-              supportAnchorage(),
+              supportAnchorage,
               { end: "ponta", type: "alça horizontal", length: null },
             ],
             locations: [{ x: i, z: row.y, layer }],
@@ -547,11 +554,11 @@ export function buildRebarGeometry(
         const front = g.length - g.cover;
         const path = roundedPath(
           [
-            ...(hook ? [{ x: -back, y: mainR + hookTail }] : []),
+            ...(layerHook ? [{ x: -back, y: mainR + hookTail }] : []),
             { x: -back, y: 0 },
             { x: front, y: 0 },
           ],
-          hook ? mainR : 0,
+          layerHook ? mainR : 0,
         );
         const positions = beamBarPositions(p, row.count, r.tieDiameter);
         add({
@@ -568,7 +575,7 @@ export function buildRebarGeometry(
           note: `Camada ${layer + 1}; ancoragem frontal soldada${q.supportAnchor === "hook" ? "; gancho de 90° no suporte" : ""}`,
           spacing: pitchOf(positions),
           anchorage: [
-            supportAnchorage(),
+            supportAnchorage,
             {
               end: "ponta",
               type: "barra transversal soldada",

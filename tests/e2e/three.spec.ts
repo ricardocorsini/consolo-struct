@@ -244,22 +244,30 @@ test("3D mostra e atualiza os dois ganchos de cada alça de N1", async ({
     .getByTestId("viewport-3d")
     .locator('svg.three-surface path[style*="stroke:rgb(36,106,194)"]');
   // The frontal camera sees both physical legs of each U at the same depth.
-  const verticalLengths = () =>
+  const verticalLegs = () =>
     steel.evaluateAll((paths) =>
       paths.flatMap((path) =>
         Array.from(
           (path.getAttribute("d") ?? "").matchAll(
             /M([^,]+),([^L]+)L([^,]+),([^M]+)/g,
           ),
-          ([, x1, y1, x2, y2]) =>
-            Math.abs(Number(x2) - Number(x1)) < 1e-3
-              ? Math.abs(Number(y2) - Number(y1))
-              : 0,
-        ).filter((length) => length > 5),
+          ([, x1, y1, x2, y2]) => ({
+            x: Number(x1),
+            dx: Math.abs(Number(x2) - Number(x1)),
+            length: Math.abs(Number(y2) - Number(y1)),
+          }),
+        ).filter(({ dx, length }) => dx < 1e-3 && length > 5),
       ),
     );
-  await expect.poll(async () => (await verticalLengths()).length).toBe(4);
-  const initial = await verticalLengths();
+  await expect
+    .poll(async () => {
+      const legs = await verticalLegs();
+      if (legs.length !== 4) return 0;
+      const xs = legs.map(({ x }) => x);
+      return ((Math.max(...xs) - Math.min(...xs)) * 128) / legs[0].length;
+    })
+    .toBeCloseTo(36, 5);
+  const initial = await verticalLegs();
   await detail();
   const tail = page.getByLabel("Ponta reta do gancho");
   await tail.fill("19,2");
@@ -268,8 +276,8 @@ test("3D mostra e atualiza os dois ganchos de cada alça de N1", async ({
   await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
   await expect
     .poll(async () => {
-      const lengths = await verticalLengths();
-      return lengths.length === 4 ? lengths[0] / initial[0] : 0;
+      const legs = await verticalLegs();
+      return legs.length === 4 ? legs[0].length / initial[0].length : 0;
     })
     .toBeCloseTo(1.5, 4);
   await detail();
@@ -277,7 +285,7 @@ test("3D mostra e atualiza os dois ganchos de cada alça de N1", async ({
   await open3d(page);
   await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
   await expect(steel.first()).toBeAttached();
-  await expect.poll(verticalLengths).toHaveLength(0);
+  await expect.poll(verticalLegs).toHaveLength(0);
 });
 test("trocas entre vistas descartam a cena anterior e preservam o editor", async ({
   page,
