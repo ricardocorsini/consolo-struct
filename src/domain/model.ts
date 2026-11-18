@@ -113,7 +113,19 @@ export function geometryErrors(p: Piece): string[] {
   return errors;
 }
 export const fingerprint = (p: Piece) =>
-  JSON.stringify([p.geometry, p.loads, p.materials, p.rebar, p.design]);
+  JSON.stringify([
+    p.geometry,
+    p.loads,
+    p.materials,
+    p.rebar,
+    p.design,
+    p.detailing?.supportHookProjection,
+    p.detailing?.supportHookTail,
+    p.detailing?.stitchEmbedment,
+    p.detailing?.barArrangement,
+    p.detailing?.beamBottomDiameter,
+    p.detailing?.pins,
+  ]);
 export function newPiece(index: number): Piece {
   return {
     id: crypto.randomUUID(),

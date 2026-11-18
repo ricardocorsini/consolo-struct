@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Motor 0.6.0 (issue #65). Verifica a ancoragem das famílias N1, N2, N2I, N3/N3G, N4 e P1 e registra a conferência de N5, N6 e PINO. Para N2, N2I e N4, usa o limite no eixo da barra e mostra também a distância nominal até o cobrimento. O modelo das barras, a memória, o PDF, o CSV geral e o cálculo auditável usam os comprimentos verificados. O valor zero ativa a ancoragem automática nos campos de gancho de N1 e penetração das costuras. Os valores explícitos nos projetos salvos continuam válidos no esquema 6.
+
 - Completa os quantitativos da issue #63 por posição de armadura. A relação, os resumos e os CSVs usam os valores do modelo. O CSV do projeto inclui consumo de aço e concreto por peça. O resumo geral mostra o volume total de concreto e a taxa de aço do projeto. O espaçamento de N3/N3G usa as estações efetivamente detalhadas.
 
 - Integra o PR #76 (issue #63). Elevação, cortes, 3D, prancha e quadro de aço passam a usar as mesmas formas e instâncias de armadura. A revisão recupera os ganchos nominais da costura no 3D e na planta, desenha trechos no plano do corte e identifica o par N3/N3G da estação. A prancha distingue ramos informados de ramos detalhados quando alguma alça é descartada. Volume de concreto e taxa de aço aparecem no Detalhamento e na Memória. O CSV geral acrescenta ramos detalhados, massa total de aço detalhado e taxa de aço. Mantém o motor ELU e o esquema 6.

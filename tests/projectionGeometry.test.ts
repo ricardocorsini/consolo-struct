@@ -68,10 +68,12 @@ describe("Projeções dos percursos físicos — revisão #58", () => {
   it("costuras não aparecem antes do início da penetração no suporte", () => {
     const p = shortFixture(),
       d = buildDetail(p);
-    expect(d.bars.some((b) => b.family === "stitch")).toBe(true);
-    expect(
-      sectionBars(p, d, -p.detailing.stitchEmbedment - 1).stitches,
-    ).toEqual([]);
+    const embedment = d.result.values.anchorN2_adopted;
+    expect(embedment).toBeGreaterThan(0);
+    expect(sectionBars(p, d, -embedment - 1).stitches).toEqual([]);
+    expect(sectionBars(p, d, -embedment + 20).stitches.length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("não interpreta os ganchos de fechamento de N2/N2I como ramos adicionais", () => {

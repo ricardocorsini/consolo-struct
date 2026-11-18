@@ -1,4 +1,5 @@
 import type { Piece } from "../domain/model";
+import { constructiveAnchorage } from "../domain/anchorage";
 import { tieLayout } from "../domain/engine";
 import { stirrupLayout } from "../domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../domain/profile";
@@ -131,13 +132,13 @@ export function transverseGeometry(
   p: Piece,
   sectionX?: number,
   placedTiePositions?: number[],
+  { concrete = concreteProfile(p), checkInterferences = true } = {},
 ) {
   const g = p.geometry,
     r = p.rebar;
   const branches = r.stirrupBranches ?? 2,
     diameter = r.constructiveDiameter ?? 8;
-  const concrete = concreteProfile(p),
-    layout = stirrupLayout(p);
+  const layout = stirrupLayout(p);
   const mandrel = mandrelDiameter(
     r.stirrupDiameter,
     p.materials.fykTransverse,
@@ -248,7 +249,7 @@ export function transverseGeometry(
       samplePath(translatePath(s.path, s.offset, layout.offset), 24).map(
         (pt) => [s.x, pt.x, pt.y] as Point3,
       );
-    for (let i = 0; i < sections.length; i++) {
+    for (let i = 0; checkInterferences && i < sections.length; i++) {
       if (
         sections
           .slice(i + 1)
@@ -283,11 +284,15 @@ export function transverseGeometry(
   };
 }
 
-export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
+export function constructiveGeometry(
+  p: Piece,
+  t = transverseGeometry(p),
+  concrete = concreteProfile(p),
+) {
   const g = p.geometry,
     r = p.rebar;
-  const concrete = concreteProfile(p),
-    diameter = t.diameter;
+  const diameter = t.diameter;
+  const support = constructiveAnchorage(p);
   const nominalMandrel = mandrelDiameter(diameter, p.materials.fykTransverse);
   const nominalRadius = (nominalMandrel + diameter) / 2;
   const radius =
@@ -301,7 +306,7 @@ export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
     return { m, b: a.depth - m * a.x - t.offset * Math.sqrt(1 + m * m) };
   });
   const end = g.length - g.cover - r.tieDiameter - diameter / 2;
-  const back = -(g.columnWidth - g.cover - diameter / 2);
+  const back = -support.adopted;
   const corners = lines
     .slice(1)
     .map((line, i) => {
@@ -322,7 +327,8 @@ export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
     r.tieDiameter / 2 +
     diameter / 2 +
     Math.max(20, diameter);
-  const tail = Math.max(8 * diameter, bottom(end) - tangent - ceiling);
+  const tailAvailable = Math.max(0, bottom(end) - tangent - ceiling);
+  const tail = Math.max(8 * diameter, tailAvailable);
   const vertices = [
     { x: back, y: bottom(0) },
     { x: 0, y: bottom(0) },
@@ -361,12 +367,14 @@ export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
   }
   return {
     ...t,
+    support,
     path,
     vertices,
     end,
     back,
     ceiling,
     tail,
+    tailAvailable,
     radius,
     mandrel: 2 * radius - diameter,
     problems,

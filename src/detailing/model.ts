@@ -1,11 +1,7 @@
 import { calculate, tieLayout, type CalculationResult } from "../domain/engine";
 import { geometryErrors, type Piece } from "../domain/model";
 import { stirrupLayout, upperStitchLayout } from "../domain/theory";
-import {
-  bottomOffsetDepth,
-  bottomReach,
-  concreteProfile,
-} from "../domain/profile";
+import { bottomOffsetDepth, concreteProfile } from "../domain/profile";
 import {
   loopPinDefined,
   requiresSupportHook,
@@ -38,6 +34,13 @@ import {
   type PlacedPath,
 } from "./rebarPlacement";
 import { pieceVolume } from "../domain/profile";
+import { anchorageKey, supportHookGeometry } from "../domain/anchorage";
+import {
+  lowerStitchLayout,
+  stitchAnchorage,
+  stitchFront,
+  stitchWidth,
+} from "./stitches";
 export { pinCenters } from "./connections";
 
 export type DetailIssue = {
@@ -63,6 +66,7 @@ export type BarAnchorage = {
   end: "suporte" | "ponta" | "ganchos" | "embutimento" | "espera";
   type: string;
   length: number | null;
+  projection?: number;
 };
 export type Bar = {
   mark: string;
@@ -210,39 +214,9 @@ const cm = (mm: number) =>
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
-export function lowerStitchLayout(
-  p: Piece,
-  layout: { d: number; dPrime: number; maxDepth: number },
-) {
-  const g = p.geometry,
-    q = p.design,
-    r = p.rebar;
-  const concrete = concreteProfile(p);
-  const start =
-    upperStitchLayout(p, layout).end +
-    Math.max(20, r.stitchDiameter, 0.5 * q.aggregate) +
-    r.stitchDiameter;
-  const end = bottomOffsetDepth(
-    concrete,
-    g.cover +
-      r.stitchDiameter / 2 +
-      (mandrelDiameter(r.stitchDiameter, p.materials.fykTransverse, true) +
-        r.stitchDiameter) /
-        2,
-    g.cover + r.stitchDiameter / 2,
-  );
-  const count = q.lowerStitchCount;
-  const step = (end - start) / Math.max(count - 1, 1);
-  const levels =
-    count > 0 && end >= start
-      ? Array.from({ length: count }, (_, i) =>
-          count === 1 ? (start + end) / 2 : start + i * step,
-        )
-      : [];
-  return { start, end, step, levels };
-}
-/** Full detailing of one piece: the pure bar geometry plus the ELU report.
- * The calculation runs once; beam bends reuse its anchorage values. */
+export { lowerStitchLayout } from "./stitches";
+
+/** Full detailing of one piece. The bar geometry reuses its ELU anchorage values. */
 export function buildDetail(piece: Piece): Detail {
   const result = calculate(piece);
   const geometry = buildRebarGeometry(piece, result.values);
@@ -274,8 +248,7 @@ export function buildDetail(piece: Piece): Detail {
 }
 
 /** Single physical source of every reinforcement position of a piece (mm).
- * It runs the ELU engine only for the beam arrangement, whose bends depend on
- * the calculated anchorage, and only when `values` are not supplied. */
+ * When `values` are absent, calculate the anchorages before laying out the bars. */
 export function buildRebarGeometry(
   piece: Piece,
   values?: Record<string, number>,
@@ -359,18 +332,9 @@ export function buildRebarGeometry(
         cutLength,
       });
   };
+  const designValues = values ?? calculate(p).values;
   const beam = beamArrangementActive(p);
-  const beamBars = beam ? beamLayout(p, values ?? calculate(p).values) : null;
-  /** Support hook of N1 in the vertical plane of one leg (as in Detail.hookExtra). */
-  const supportHook = (startX: number, depth: number, radius: number) =>
-    roundedPath(
-      [
-        { x: startX, y: depth },
-        { x: startX - radius, y: depth },
-        { x: startX - radius, y: depth + radius + s.supportHookTail },
-      ],
-      radius,
-    );
+  const beamBars = beam ? beamLayout(p, designValues) : null;
   if (s.barArrangement === "beam" && !beam)
     issue(
       "beam-unavailable",
@@ -386,49 +350,60 @@ export function buildRebarGeometry(
     );
   const mainR = (mainD + r.tieDiameter) / 2;
   const mainFront = g.length - g.cover - r.tieDiameter / 2;
-  const back =
-    q.supportAnchor === "hook"
-      ? s.supportHookProjection
-      : q.supportAnchorLength;
-  if (
-    !beam &&
-    back >
-      g.columnWidth -
-        g.cover -
-        (q.supportAnchor === "hook" ? r.tieDiameter / 2 : 0)
-  )
+  const hook =
+    !beam && q.supportAnchor === "hook"
+      ? supportHookGeometry(
+          p,
+          layout.maxDepth,
+          mainR,
+          designValues.anchorRequired ?? 0,
+        )
+      : null;
+  const back = hook?.projection ?? q.supportAnchorLength;
+  const hookTail = hook?.tail ?? 0;
+  /** Support hook of N1 in the vertical plane of one leg (as in Detail.hookExtra). */
+  const supportHook = (startX: number, depth: number, radius: number) =>
+    roundedPath(
+      [
+        { x: startX, y: depth },
+        { x: startX - radius, y: depth },
+        { x: startX - radius, y: depth + radius + hookTail },
+      ],
+      radius,
+    );
+  if (!beam && back > g.columnWidth - g.cover - (hook ? r.tieDiameter / 2 : 0))
     issue(
       "tie-back",
       "O tirante ultrapassa o cobrimento na face posterior do suporte.",
     );
-  if (!beam && q.supportAnchor === "hook") {
-    if (s.supportHookTail < 8 * r.tieDiameter)
+  if (hook) {
+    if (hook.tail < hook.tailMinimum)
       issue(
         "hook-tail",
         "A ponta reta do gancho de 90° do tirante deve ter pelo menos 8 diâmetros.",
       );
-    const available = back - mainR + (Math.PI * mainR) / 2 + s.supportHookTail;
-    if (available + 1e-6 < q.supportAnchorLength)
+    if (hook.available + 1e-6 < (designValues.anchorRequired ?? 0))
       issue(
         "hook-available",
-        "O percurso real do gancho é menor que o comprimento disponível declarado no cálculo.",
+        "A projeção do gancho é menor que a ancoragem necessária no suporte.",
       );
     if (
-      back < mainR ||
-      layout.maxDepth + mainR + s.supportHookTail > g.height - g.cover
+      hook.projection < mainR ||
+      hook.tail > hook.tailAvailable + 1e-6 ||
+      hook.outerProjection > hook.declared + 1e-6
     )
       issue(
         "hook-fit",
-        "O gancho do tirante não cabe no trecho de suporte representado; reveja projeção, ponta e altura.",
+        "O gancho do tirante não cabe no trecho de suporte representado.",
       );
   }
-  /** Developed N1 length beyond the support face, as detailed. */
   const supportAnchorage = (): BarAnchorage =>
-    q.supportAnchor === "hook"
+    hook
       ? {
           end: "suporte",
           type: "gancho de 90°",
-          length: back - mainR + (Math.PI * mainR) / 2 + s.supportHookTail,
+          length: hook.developed,
+          projection: hook.projection,
         }
       : { end: "suporte", type: "reta", length: back };
   if (!loopPinDefined(steel, r.tieDiameter))
@@ -530,7 +505,7 @@ export function buildRebarGeometry(
           );
           const hookExtra =
             q.supportAnchor === "hook"
-              ? 2 * ((Math.PI * mainR) / 2 + s.supportHookTail)
+              ? 2 * ((Math.PI * mainR) / 2 + hookTail)
               : 0;
           const inset = (g.width - width) / 2;
           add({
@@ -542,7 +517,7 @@ export function buildRebarGeometry(
             mandrel: d,
             width,
             height: mainFront + back,
-            hookTail: q.supportAnchor === "hook" ? s.supportHookTail : 0,
+            hookTail: q.supportAnchor === "hook" ? hookTail : 0,
             hookExtra,
             note: `Camada ${layer + 1}; 2 ramos por alça${q.supportAnchor === "hook" ? "; 2 ganchos de 90° fora do plano" : "; ancoragem reta no suporte"}`,
             spacing: null,
@@ -595,11 +570,9 @@ export function buildRebarGeometry(
           mandrel: mainD,
           width: 0,
           height: mainFront + back,
-          hookTail: q.supportAnchor === "hook" ? s.supportHookTail : 0,
+          hookTail: q.supportAnchor === "hook" ? hookTail : 0,
           hookExtra:
-            q.supportAnchor === "hook"
-              ? (Math.PI * mainR) / 2 + s.supportHookTail
-              : 0,
+            q.supportAnchor === "hook" ? (Math.PI * mainR) / 2 + hookTail : 0,
           note: `Camada ${layer + 1}; ancoragem frontal soldada${q.supportAnchor === "hook" ? "; gancho de 90° no suporte" : ""}`,
           spacing: pitchOf(positions),
           anchorage: [
@@ -692,8 +665,10 @@ export function buildRebarGeometry(
     start: number,
     end: number,
     family: "stitch" | "lower",
+    levels: number[],
   ) => {
-    if (count > 0 && end < start) {
+    if (!count) return;
+    if (end < start) {
       issue(
         `zone-${family}`,
         "Não há altura suficiente para distribuir a costura preservando o cobrimento e a separação das barras.",
@@ -701,15 +676,18 @@ export function buildRebarGeometry(
       return;
     }
     const step = (end - start) / Math.max(count - 1, 1);
-    for (let i = 0; i < count; i++) {
-      const z = count === 1 ? (start + end) / 2 : start + i * step;
-      const front = Math.min(
-        g.length - g.cover - r.stitchDiameter / 2,
-        bottomReach(concrete, z, g.cover + r.stitchDiameter / 2, g.length),
+    const mark = family === "stitch" ? "N2" : "N2I";
+    const embedment =
+      designValues[anchorageKey(mark, "adopted")] ??
+      stitchAnchorage(p, mark, levels, 0, 0).adopted;
+    if (embedment + 1e-8 < (designValues[anchorageKey(mark, "required")] ?? 0))
+      issue(
+        `stitch-back-${mark}`,
+        `${mark} não alcança a ancoragem necessária no eixo da costura no suporte.`,
       );
-      const embedment = s.stitchEmbedment;
-      const width =
-        g.width - 2 * (g.cover + r.stirrupDiameter) - r.stitchDiameter;
+    const width = stitchWidth(p);
+    for (const z of levels) {
+      const front = stitchFront(p, concrete, z);
       const depth = front + embedment,
         mandrel = mandrelDiameter(
           r.stitchDiameter,
@@ -788,13 +766,20 @@ export function buildRebarGeometry(
       "stitch-zone",
       "Não há altura disponível para a costura abaixo de todas as camadas do tirante.",
     );
-  addHorizontal(r.stitchCount, stitchStart, stitchEnd, "stitch");
-  const lowerStitch = lowerStitchLayout(p, layout);
+  addHorizontal(
+    r.stitchCount,
+    stitchStart,
+    stitchEnd,
+    "stitch",
+    upperStitch.levels,
+  );
+  const lowerStitch = lowerStitchLayout(p, layout, concrete);
   addHorizontal(
     q.lowerStitchCount,
     lowerStitch.start,
     lowerStitch.end,
     "lower",
+    lowerStitch.levels,
   );
   const { offset: transverseOffset, pitch } = stirrupLayout(p);
   // A horizontal loop contributes the axes of its two longitudinal legs.
@@ -886,7 +871,6 @@ export function buildRebarGeometry(
       issue(
         "beam-bottom-anchor",
         `As dobras da armadura positiva não alcançam a ancoragem de referência (lb,nec = ${cm(beamBars.lbNecBottom)} cm) sem interferir no tirante. Reveja a bitola da positiva ou a altura da peça.`,
-        "review",
       );
     const positions = beamBarPositions(p, bottom.count, bottom.diameter);
     add({
@@ -922,7 +906,7 @@ export function buildRebarGeometry(
       "review",
     );
   }
-  const constructive = constructiveGeometry(p, transverse);
+  const constructive = constructiveGeometry(p, transverse, concrete);
   constructive.problems.forEach((message, i) =>
     issue(`constructive-fit-${i}`, message),
   );

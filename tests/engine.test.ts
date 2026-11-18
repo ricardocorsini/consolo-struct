@@ -691,7 +691,8 @@ describe("Sugestão da viga em balanço com combinações", () => {
       length: 1000,
       loadOffset: 625,
     });
-    p.geometry.tipHeight = 250;
+    // Keep N2 embedment and the N4 tip bend feasible in this shear-spacing case.
+    Object.assign(p.geometry, { tipHeight: 275, columnWidth: 450 });
     p.design.bearingWidth = 300;
     p.design.bearingLength = 200;
     p.rebar.stirrupDiameter = 16;

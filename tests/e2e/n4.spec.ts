@@ -2,6 +2,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { exampleProject } from "../../src/domain/model";
 import { shortFixture } from "../fixtures";
+import {
+  isFamilyAnchorage,
+  legacyAnchorageValues,
+} from "../reference/legacy-anchorage-contract";
 
 async function seed(page: Page) {
   const first = shortFixture(),
@@ -122,8 +126,16 @@ test("N3 altera a área; N4 invalida a memória mas não altera resistência", a
     page.getByText("Cálculo desatualizado", { exact: true }),
   ).toBeVisible();
   const after = await audit(page);
-  expect(after.result.values).toEqual(before.result.values);
-  expect(after.result.checks).toEqual(before.result.checks);
+  expect(legacyAnchorageValues(after.result.values)).toEqual(
+    legacyAnchorageValues(before.result.values),
+  );
+  const resistant = (c: { id: string }) => !isFamilyAnchorage(c.id);
+  expect(after.result.checks.filter(resistant)).toEqual(
+    before.result.checks.filter(resistant),
+  );
+  expect(after.result.values.anchorN4_required).toBeGreaterThan(
+    before.result.values.anchorN4_required,
+  );
   expect(after.result.fingerprint).not.toBe(before.result.fingerprint);
 });
 

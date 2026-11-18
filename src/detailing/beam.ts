@@ -1,7 +1,10 @@
 import { calculate, tieLayout } from "../domain/engine";
 import type { Piece } from "../domain/model";
+import { basicAnchorage, requiredAnchorage } from "../domain/anchorage";
+import { bondCoefficientEta1, steelClassOf } from "../domain/steel";
 import {
   mandrelDiameter,
+  pathLengthAfterX,
   roundedPath,
   type BarPath,
   type Point,
@@ -47,6 +50,7 @@ export type BeamLayout = {
   frontOrigin: number;
   lbNecTop: number;
   lbNecBottom: number;
+  bottomBond: { lb: number; fbd?: number; alpha: number; eta2: number };
 };
 
 const finite = (v: number | undefined): v is number =>
@@ -103,23 +107,30 @@ export function beamLayout(
   const phi = r.tieDiameter;
   const lbTie = finite(values.lb) ? values.lb : 25 * phi;
   const alphaTop = g.cover + r.stirrupDiameter >= 3 * phi ? 0.7 : 1;
-  const ratio = finite(values.anchorRatio) ? values.anchorRatio : 1;
-  const lbNecTop = Math.max(
-    alphaTop * lbTie * ratio,
-    0.3 * lbTie,
-    10 * phi,
-    100,
-  );
+  const ratio = values.anchorRatio ?? 1;
+  const lbNecTop = requiredAnchorage(phi, lbTie, alphaTop * lbTie * ratio);
+  const actualEnd = (end: BeamEnd, developed: number, diameter: number) => ({
+    ...end,
+    developed,
+    fits: developed + 1e-8 >= end.required && end.leg + 1e-8 >= 8 * diameter,
+  });
   // Positive bars are constructive: full anchorage of their own diameter, hooked ends.
   const phiB = s.beamBottomDiameter;
-  const lbBottom = (lbTie / phi) * phiB;
+  const eta2 = q.bond === "good" ? 1 : 0.7;
+  const steel = steelClassOf(p.materials.fyk);
+  const bond =
+    steel && finite(values.fyd) && finite(values.fctd)
+      ? basicAnchorage({
+          diameter: phiB,
+          fyd: values.fyd,
+          fctd: values.fctd,
+          eta1: bondCoefficientEta1(steel),
+          eta2,
+        })
+      : { lb: (lbTie / phi) * phiB };
+  const lbBottom = bond.lb;
   const alphaBottom = g.cover + r.stirrupDiameter >= 3 * phiB ? 0.7 : 1;
-  const lbNecBottom = Math.max(
-    alphaBottom * lbBottom,
-    0.3 * lbBottom,
-    10 * phiB,
-    100,
-  );
+  const lbNecBottom = requiredAnchorage(phiB, lbBottom, alphaBottom * lbBottom);
 
   const mandrel = mandrelDiameter(phi, p.materials.fyk);
   const radius = (mandrel + phi) / 2;
@@ -152,6 +163,7 @@ export function beamLayout(
       { x: xFront, y: z },
       { x: xFront, y: z + radius + front.leg },
     ];
+    const path = roundedPath(vertices, radius);
     return {
       layer,
       count: row.count,
@@ -160,9 +172,17 @@ export function beamLayout(
       mandrel,
       radius,
       vertices,
-      path: roundedPath(vertices, radius),
-      back,
-      front,
+      path,
+      back: actualEnd(
+        back,
+        path.valid ? path.length - pathLengthAfterX(path, 0) : 0,
+        phi,
+      ),
+      front: actualEnd(
+        front,
+        path.valid ? pathLengthAfterX(path, frontOrigin) : 0,
+        phi,
+      ),
       span: xFront - xBack,
     };
   });
@@ -190,8 +210,7 @@ export function beamLayout(
   const frontTangent = radiusB * Math.tan(frontTurn / 2);
   const frontB = end(
     lbNecBottom,
-    Math.hypot(xFrontB - frontOrigin, zTip - bottomAt(frontOrigin, offset)) -
-      frontTangent,
+    Math.max(0, xFrontB - frontOrigin) * Math.hypot(1, slope) - frontTangent,
     radiusB,
     zTip - frontTangent - ceiling,
     phiB,
@@ -204,6 +223,7 @@ export function beamLayout(
     { x: xFrontB, y: zTip },
     { x: xFrontB, y: zTip - frontTangent - frontB.leg },
   ];
+  const path = roundedPath(verticesB, radiusB);
   return {
     top,
     bottom: {
@@ -212,9 +232,17 @@ export function beamLayout(
       mandrel: mandrelB,
       radius: radiusB,
       vertices: verticesB,
-      path: roundedPath(verticesB, radiusB),
-      back: backB,
-      front: frontB,
+      path,
+      back: actualEnd(
+        backB,
+        path.valid ? path.length - pathLengthAfterX(path, 0) : 0,
+        phiB,
+      ),
+      front: actualEnd(
+        frontB,
+        path.valid ? pathLengthAfterX(path, frontOrigin) : 0,
+        phiB,
+      ),
       span: xFrontB - xBackB,
       depthSupport: zSupport,
       depthTip: zTip,
@@ -222,5 +250,6 @@ export function beamLayout(
     frontOrigin,
     lbNecTop,
     lbNecBottom,
+    bottomBond: { ...bond, alpha: alphaBottom, eta2 },
   };
 }

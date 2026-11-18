@@ -578,10 +578,25 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     `Apoio: ${cm(q.bearingLength)} × ${cm(q.bearingWidth)} × ${cm(q.bearingHeight)} cm`,
     2.2,
   );
+  const stitchPenetration = (family: "stitch" | "lower") => {
+    const bar = stitchBars.find((bar) => bar.family === family);
+    const length = bar?.anchorage.find(
+      (anchor) => anchor.end === "embutimento",
+    )?.length;
+    return length == null
+      ? ""
+      : `${family === "stitch" ? "N2" : "N2I"} ${cm(length)} cm`;
+  };
+  const stitchLengths = [
+    stitchPenetration("stitch"),
+    stitchPenetration("lower"),
+  ].filter(Boolean);
   text(
     x - P,
     planY + B + 28,
-    `Costura penetra ${cm(s.stitchEmbedment)} cm no suporte. Cobrimento nominal ${cm(g.cover)} cm.`,
+    stitchLengths.length
+      ? `Penetração no suporte pelo eixo · ${stitchLengths.join(" · ")} · cobrimento nominal ${cm(g.cover)} cm.`
+      : `Cobrimento nominal ${cm(g.cover)} cm.`,
     2.2,
   );
   text(x - P, planY + B + 33, "Armaduras secundárias em tracejado.", 2.2);
@@ -870,7 +885,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         text(
           hx + 23,
           hy + 9,
-          `Projeção no suporte=${cm(s.supportHookProjection)} cm; D=${cm(mandrelDiameter(b.diameter, p.materials.fyk))} cm.`,
+          `Projeção no suporte ${cm(b.anchorage.find((anchor) => anchor.end === "suporte")?.projection ?? 0)} cm · D=${cm(mandrelDiameter(b.diameter, p.materials.fyk))} cm.`,
           2.05,
         );
         text(

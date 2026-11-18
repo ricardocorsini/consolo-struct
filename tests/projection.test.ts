@@ -5,6 +5,7 @@ import * as engine from "../src/domain/engine";
 import { decodeProject, exampleProject } from "../src/domain/model";
 import { connectionGeometry, pinCenters } from "../src/detailing/connections";
 import { buildDetail } from "../src/detailing/model";
+import { rebarModel } from "../src/detailing/rebarModel";
 import {
   elevationShapes,
   elevationTiePaths,
@@ -144,9 +145,10 @@ describe("Projeções de ligações integradas a N3/N4 (#39)", () => {
     },
   );
 
-  it("não calcula ELU nem altera entradas ao projetar a elevação", () => {
+  it("projeta a elevação a partir da geometria existente sem recalcular ELU", () => {
     const p = fixture(),
       before = JSON.stringify(p);
+    rebarModel(p);
     const calculate = vi.spyOn(engine, "calculate");
     try {
       elevationShapes(p);

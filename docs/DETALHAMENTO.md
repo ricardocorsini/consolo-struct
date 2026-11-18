@@ -27,6 +27,10 @@ Uma alça horizontal em U fornece **dois ramos longitudinais**. Portanto, quatro
 
 As alças de uma mesma camada são aninhadas, respeitando mandris, cobrimento, distância livre e espaçamento máximo entre ramos. Uma combinação que não cabe recebe pendência impeditiva, sem diminuir o mandril para produzir uma aparência de solução. Na ancoragem soldada, os ramos retos e a barra transversal são quantificados separadamente; as soldas precisam de sua especificação e verificação.
 
+Os campos de projeção e ponta reta do gancho de N1 e de penetração de N2/N2I aceitam zero para cálculo automático. A projeção automática de N1 considera a ancoragem necessária e o espaço no suporte. A ponta reta automática usa `8φ`. Os valores manuais do gancho são conferidos no espaço representado. Uma penetração manual de costura maior que a necessária é adotada até o limite no eixo. Valores menores de costura são elevados ao mínimo calculado, se houver espaço. Os valores informados são preservados ao abrir projetos do esquema 6.
+
+N2, N2I e N4 usam o espaço entre a face do suporte e o limite do eixo `P − c − φ/2`. A memória também mostra a cota nominal `P − c`. Quando o comprimento necessário excede o limite no eixo, a verificação reprova e o desenho mostra o trecho que cabe no suporte. Os comprimentos desenvolvido e de corte incorporam o percurso e os ganchos adotados. Veja [Ancoragens e geometria](CRITERIOS-DE-CALCULO.md#ancoragens-e-geometria).
+
 A prancha identifica os ramos detalhados e indica a quantidade informada quando há diferença. O quadro, a planta e o 3D usam as barras que o gerador conseguiu posicionar. O CSV geral conserva os dados do cálculo e acrescenta os ramos detalhados de N1, a massa total de aço detalhado e a taxa de aço por metro cúbico de concreto. O tratamento de divergências pelo motor é acompanhado na issue #64.
 
 ## N3 de dois/quatro ramos e N4 construtiva
@@ -35,7 +39,7 @@ A guia Armaduras permite escolher **2 ou 4 ramos efetivos de N3 por posição**.
 
 **N4 · Armadura construtiva** é obrigatória, com duas ou quatro barras derivadas de N3 e Ø8 mm inicial editável. Substitui o porta-estribos opcional; sua configuração antiga não permanece no fluxo ativo nem gera barras adicionais. N4 não participa de resistência ou sugestão automática.
 
-O eixo longitudinal acompanha a poligonal inferior com afastamento normal baseado em cobrimento, bitola N3, metade da bitola N4 e folga para o canto arredondado do estribo. As posições transversais são simétricas, uma por vértice inferior interno. O percurso se prolonga no suporte, com cobrimento posterior, e dobra verticalmente na ponta, com mandril da própria bitola e ponta reta mínima geométrica de 8φ. O gerador não interpreta essa ponta como dimensionamento resistente/ancoragem certificada da N4.
+O eixo longitudinal acompanha a poligonal inferior com afastamento normal baseado em cobrimento, bitola N3, metade da bitola N4 e folga para o canto arredondado do estribo. As posições transversais são simétricas, uma por vértice inferior interno. No suporte, o percurso usa o comprimento calculado de N4 com o limite de cobrimento no eixo. Na frente, a barra dobra verticalmente com o mandril da própria bitola. O motor verifica o percurso a partir da borda interna do aparelho de apoio e o espaço para a ponta reta mínima de 8φ abaixo de N1.
 
 `detailing/transverse.ts` é a fonte comum das formas N3/N4, projeções da modelagem, seções, 3D e quadros. Arcos e retas do eixo determinam o desenvolvimento; o corte da N4 nos desenhos considera interseções reais do percurso com o plano da seção. A quantidade do tipo multiplica comprimento e massa uma única vez.
 
@@ -106,7 +110,7 @@ Falta de espaço longitudinal entre pares, invasão do cobrimento, ausência das
 
 Cada posição é instanciada uma única vez por `buildRebarGeometry` com suas barras físicas: N1 em alça (plano horizontal, com os dois ganchos de suporte nos planos verticais de cada ramo), N1 reta (um eixo por ramo, com gancho), N1/P1 do modo viga, N2/N2I (contorno fechado no plano horizontal do seu nível), N3/N3G (plano transversal da sua estação), N4 (plano vertical de cada vértice inferior de N3/N3G), TS (ao longo da largura) e pinos (verticais, um por centro). A elevação lateral, a planta, os cortes A–A e B–B, a vista 3D, a relação e o resumo do aço são projeções ou cortes dessas barras; o número de barras físicas de cada posição é igual à quantidade declarada no quadro.
 
-O Corte B–B, no eixo da carga, usa o mesmo corte exato do A–A: no modo viga, N1 aparece nas posições reais e P1 é desenhada; costuras que terminam antes do eixo não aparecem; pinos aparecem no seu próprio plano. A planta projeta as alças com seus arcos, as dobras verticais e os ganchos na sua extensão em planta, e os estribos, N4 e P1 tracejados. A vista 3D passa a incluir TS, pinos, os ganchos de suporte de N1, as alças e as dobras reais, e N2/N2I com a mesma penetração `stitchEmbedment` e o mesmo alcance frontal do detalhamento. N5/N6 continuam sem geometria (pendência impeditiva).
+O Corte B–B, no eixo da carga, usa o mesmo corte exato do A–A: no modo viga, N1 aparece nas posições reais e P1 é desenhada; costuras que terminam antes do eixo não aparecem; pinos aparecem no seu próprio plano. A planta projeta as alças com seus arcos, as dobras verticais e os ganchos na sua extensão em planta, e os estribos, N4 e P1 tracejados. A vista 3D inclui TS, pinos, os ganchos de suporte de N1, as alças e as dobras reais. N2 e N2I usam a penetração efetiva e o alcance frontal do detalhamento. N5 e N6 sem geometria definida geram pendência impeditiva.
 
 ## Coerência das projeções 2D
 

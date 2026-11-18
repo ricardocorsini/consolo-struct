@@ -12,6 +12,7 @@ import { calculate } from "../src/domain/engine";
 import { decodeProject, exampleProject, type Piece } from "../src/domain/model";
 import { buildSceneModel } from "../src/visualization/model3d";
 import { cantileverFixture, shortFixture } from "./fixtures";
+import { legacyAnchorageValues } from "./reference/legacy-anchorage-contract";
 
 const beamPiece = (base: Piece = shortFixture()): Piece => ({
   ...base,
@@ -80,12 +81,17 @@ describe("Armado como viga — disponibilidade e compatibilidade", () => {
     });
   });
 
-  it("não altera o cálculo", () => {
+  it("preserva o cálculo resistente e identifica as dobras de N1 e P1", () => {
     const p = shortFixture();
     const a = calculate(p),
       b = calculate(beamPiece(p));
-    expect({ ...b, fingerprint: "" }).toEqual({ ...a, fingerprint: "" });
-    expect(b.fingerprint).toBe(a.fingerprint);
+    expect(legacyAnchorageValues(b.values)).toEqual(
+      legacyAnchorageValues(a.values),
+    );
+    expect(b.fingerprint).not.toBe(a.fingerprint);
+    expect(a.values.anchorP1_required).toBeUndefined();
+    expect(b.values.anchorP1_required).toBeGreaterThan(0);
+    expect(b.checks.some((c) => c.id === "anchorN1BeamTail")).toBe(true);
   });
 });
 
@@ -284,7 +290,7 @@ describe("Armado como viga — composição com recursos atuais", () => {
       expect(point.y).toBeGreaterThanOrEqual(minDepth - 1e-6);
   });
 
-  it("bloqueia congestionamento da positiva sem mudar o cálculo", () => {
+  it("bloqueia congestionamento da positiva e preserva a área resistente", () => {
     const p = deepTip();
     p.detailing.beamBottomCount = 20;
     p.detailing.beamBottomDiameter = 25;
@@ -298,7 +304,14 @@ describe("Armado como viga — composição com recursos atuais", () => {
     expect(
       buildDetail(normal).issues.some((i) => i.code === "beam-bottom-spacing"),
     ).toBe(false);
-    expect(calculate(p)).toEqual(calculate(normal));
+    const a = calculate(p);
+    const b = calculate(normal);
+    expect(legacyAnchorageValues(a.values)).toEqual(
+      legacyAnchorageValues(b.values),
+    );
+    expect(a.values.anchorP1_required).toBeGreaterThan(
+      b.values.anchorP1_required,
+    );
   });
   it("confere a classe de aço da positiva e seu pino independentemente do tirante", () => {
     const p = deepTip();

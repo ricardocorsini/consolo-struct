@@ -1,6 +1,7 @@
 // Exhaustive oracle for R2/R3: no pruning and no first-count stop.
 // Sizing is copied from the historical implementation, never from production helpers.
 import { area, type Piece } from "../../src/domain/model";
+import { beamArrangementActive } from "../../src/detailing/beam";
 import {
   calculate,
   tieLayout,
@@ -122,7 +123,28 @@ export function exhaustiveSecondarySearch(input: Piece) {
     "transverse",
     "suspension",
     "splitting",
+    "anchorN1HookBend",
+    "anchorN1HookCover",
+    "anchorN1HookHeight",
+    "anchorN1HookTail",
+    "anchorN1BeamTail",
+    "anchorN2",
+    "anchorN2Front",
+    "anchorN2Closure",
+    "anchorN2I",
+    "anchorN2IFront",
+    "anchorN2IClosure",
+    "anchorN3Closure",
+    "anchorN3GClosure",
+    "anchorN4",
+    "anchorN4Front",
+    "anchorN4Tail",
+    "anchorN4Geometry",
+    "anchorP1",
+    "anchorP1Tail",
   ]);
+  if (input.design.supportAnchor === "hook" || beamArrangementActive(input))
+    critical.add("anchorage");
 
   for (const diameter of [6.3, 8, 10, 12.5, 16, 20, 25]) {
     for (

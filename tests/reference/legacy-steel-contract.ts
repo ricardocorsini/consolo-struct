@@ -1,4 +1,5 @@
 import type { CalculationResult } from "../../src/domain/engine";
+import { legacyAnchorageContract } from "./legacy-anchorage-contract";
 
 /** Preserve historical CA-50/CA-50 regressions across a storage/engine-id change.
  * No numeric result, demand, capacity, status or check is removed or replaced. */
@@ -28,7 +29,7 @@ export function legacySteelContract(
     ),
   );
   const old = {
-    ...result,
+    ...legacyAnchorageContract(result),
     engineVersion: "0.4.0",
     fingerprint: JSON.stringify([
       geometry,

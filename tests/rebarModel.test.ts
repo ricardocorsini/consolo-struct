@@ -138,11 +138,12 @@ describe("Fonte única das armaduras (#63)", () => {
       const p = make();
       const model = rebarModel(p);
       const g = p.geometry;
+      const { values } = engine.calculate(p);
       const stations = [
         stirrupLayout(p).positions[0],
         g.loadOffset,
         g.length / 2,
-        -p.detailing.stitchEmbedment / 2,
+        -values.anchorN2_adopted / 2,
       ];
       for (const x of stations) {
         const cut = intersectSectionX(model, x);
@@ -221,6 +222,7 @@ describe("Fonte única das armaduras (#63)", () => {
     (_name, make) => {
       const p = make();
       const model = rebarModel(p);
+      const { values } = engine.calculate(p);
       const stitches = model.bars.filter(
         (b) => b.family === "stitch" || b.family === "lower",
       );
@@ -229,12 +231,20 @@ describe("Fonte única das armaduras (#63)", () => {
       const elevation = projectElevation(model).filter(
         ({ bar }) => bar.family === "stitch" || bar.family === "lower",
       );
-      const locations = stitches.flatMap((b) => b.locations);
+      const locations = stitches.flatMap((b) =>
+        b.locations.map((loc) => ({
+          ...loc,
+          embedment:
+            values[
+              b.family === "stitch" ? "anchorN2_adopted" : "anchorN2I_adopted"
+            ],
+        })),
+      );
       expect(scene).toHaveLength(locations.length);
       expect(elevation).toHaveLength(locations.length);
       locations.forEach((loc, i) => {
         const xs = scene[i].points.map((pt) => pt[0]);
-        expect(Math.min(...xs)).toBeCloseTo(-p.detailing.stitchEmbedment, 6);
+        expect(Math.min(...xs)).toBeCloseTo(-loc.embedment, 6);
         expect(Math.max(...xs)).toBeCloseTo(loc.x, 6);
         expect(scene[i].points.every((pt) => close(-pt[2], loc.z))).toBe(true);
         const shape = elevation[i].shape;
@@ -242,7 +252,7 @@ describe("Fonte única das armaduras (#63)", () => {
         if (shape.kind === "path") {
           const pts = samplePath(shape.path);
           expect(Math.min(...pts.map((q) => q.x))).toBeCloseTo(
-            -p.detailing.stitchEmbedment,
+            -loc.embedment,
             6,
           );
           expect(Math.max(...pts.map((q) => q.x))).toBeCloseTo(loc.x, 6);
@@ -259,6 +269,7 @@ describe("Fonte única das armaduras (#63)", () => {
     const p = curto();
     const scene = buildSceneModel(p);
     const model = rebarModel(p);
+    const { values } = engine.calculate(p);
     const ids = new Set(scene.steel.map((s) => s.id));
     for (const id of ["N1", "N2", "N3", "N4", "TS", "PINO"])
       expect(ids.has(id as never)).toBe(true);
@@ -279,7 +290,7 @@ describe("Fonte única das armaduras (#63)", () => {
       expect(
         Math.max(...hook.points.map((pt) => -pt[2])) -
           Math.min(...hook.points.map((pt) => -pt[2])),
-      ).toBeGreaterThan(p.detailing.supportHookTail);
+      ).toBeGreaterThan(values.anchorN1_tail);
   });
 
   it("o Corte B–B do modo viga corta N1 nas posições reais e mostra P1", () => {
@@ -564,13 +575,14 @@ describe("Fonte única das armaduras (#63)", () => {
     },
   );
 
-  it("vistas de modelagem não rodam o motor ELU fora do modo viga", () => {
+  it("as vistas de modelagem reusam o cálculo de ancoragem da peça", () => {
     const p = curto();
-    p.name = "sem-ELU";
+    p.name = "ancoragem-memorizada";
+    const { values } = engine.calculate(p);
     const spy = vi.spyOn(engine, "calculate");
     try {
-      buildRebarGeometry(p);
-      rebarModel(p);
+      buildRebarGeometry(p, values);
+      rebarModel(p, values);
       render(p);
       render(p, true);
       buildSceneModel(p);
@@ -585,12 +597,12 @@ describe("Fonte única das armaduras (#63)", () => {
     const first = rebarModel(p);
     expect(rebarModel(p)).toBe(first);
     const edited = structuredClone(p);
-    edited.detailing.stitchEmbedment += 50;
+    edited.detailing.stitchEmbedment = 350;
     const second = rebarModel(edited);
     expect(second).not.toBe(first);
     const n2 = second.bars.find((b) => b.family === "stitch")!;
     const xs = partPoints3(n2.instances[0].parts[0]).map((pt) => pt.x);
-    expect(Math.min(...xs)).toBeCloseTo(-(p.detailing.stitchEmbedment + 50), 6);
+    expect(Math.min(...xs)).toBeCloseTo(-edited.detailing.stitchEmbedment, 6);
     // Mutating the same object in place is also detected.
     p.rebar.stitchDiameter = 8;
     expect(rebarModel(p)).not.toBe(first);

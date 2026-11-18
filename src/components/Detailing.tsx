@@ -392,10 +392,13 @@ function Detailing({
                 label="Penetração da costura"
                 unit="cm"
                 factor={10}
-                min={10}
                 value={piece.detailing.stitchEmbedment}
                 onChange={(v) => patch({ stitchEmbedment: v })}
               />
+              <p className="table-note">
+                Use 0 para dimensionar automaticamente. A penetração informada é
+                limitada pelo cobrimento do suporte.
+              </p>
               <div className="section-label section-spaced">
                 ARMADURAS COMPLEMENTARES
               </div>

@@ -412,7 +412,7 @@ test("exportações diretas e cálculo auditável mantêm identidade, nomes e un
   expect(audit.name).toBe("C01-consolostruct.calc.json");
   const data = JSON.parse(audit.data.toString());
   expect(data.input.geometry.width).toBe(400);
-  expect(data.result.engineVersion).toBe("0.5.0");
+  expect(data.result.engineVersion).toBe("0.6.0");
   expect(data).not.toHaveProperty("pieces");
   await command(page, "export").click();
   await page

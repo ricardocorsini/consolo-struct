@@ -1,6 +1,7 @@
 import { area, type Piece } from "./model";
 import { calculate, tieLayout, type CalculationResult } from "./engine";
 import { reactionGeometry, stirrupLayout, upperStitchLayout } from "./theory";
+import { beamArrangementActive } from "../detailing/beam";
 export interface DesignProposal {
   piece: Piece;
   result: CalculationResult;
@@ -142,7 +143,28 @@ export function suggestReinforcement(input: Piece): DesignProposal {
     "transverse",
     "suspension",
     "splitting",
+    "anchorN1HookBend",
+    "anchorN1HookCover",
+    "anchorN1HookHeight",
+    "anchorN1HookTail",
+    "anchorN1BeamTail",
+    "anchorN2",
+    "anchorN2Front",
+    "anchorN2Closure",
+    "anchorN2I",
+    "anchorN2IFront",
+    "anchorN2IClosure",
+    "anchorN3Closure",
+    "anchorN3GClosure",
+    "anchorN4",
+    "anchorN4Front",
+    "anchorN4Tail",
+    "anchorN4Geometry",
+    "anchorP1",
+    "anchorP1Tail",
   ]);
+  if (input.design.supportAnchor === "hook" || beamArrangementActive(input))
+    critical.add("anchorage");
 
   let commonFailures: Map<string, string> | undefined;
   let lastFailures = new Map<string, string>();
@@ -257,6 +279,6 @@ export function suggestReinforcement(input: Piece): DesignProposal {
     result: final,
     changed: JSON.stringify(best) !== JSON.stringify(input),
     candidates,
-    message: `Arranjo sugerido entre ${candidates} candidatos. Verifique os resultados: ancoragens, suporte e pendências externas permanecem com os dados informados.`,
+    message: `Arranjo sugerido entre ${candidates} candidatos. Confira as ancoragens adotadas, as armaduras informadas no suporte e as demais verificações da peça.`,
   };
 }

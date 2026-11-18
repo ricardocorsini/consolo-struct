@@ -40,28 +40,32 @@ import { toCalculationJson, toCsv, toPdf } from "../src/lib/exports";
 import { buildSceneModel } from "../src/visualization/model3d";
 import Drawing from "../src/components/Drawing";
 import { cantileverFixture, shortFixture } from "./fixtures";
+import { legacyAnchorageContract } from "./reference/legacy-anchorage-contract";
 
-const numericResult = (r: CalculationResult) => ({
-  status: r.status,
-  values: r.values,
-  checks: r.checks.map(({ id, status, demand, capacity }) => ({
-    id,
-    status,
-    demand,
-    capacity,
-  })),
-  combinations: r.combinations.map((c) => ({
-    method: c.method,
-    values: c.values,
-    status: c.status,
-    checks: c.checks.map(({ id, status, demand, capacity }) => ({
+const numericResult = (result: CalculationResult) => {
+  const r = legacyAnchorageContract(result);
+  return {
+    status: r.status,
+    values: r.values,
+    checks: r.checks.map(({ id, status, demand, capacity }) => ({
       id,
       status,
       demand,
       capacity,
     })),
-  })),
-});
+    combinations: r.combinations.map((c) => ({
+      method: c.method,
+      values: c.values,
+      status: c.status,
+      checks: c.checks.map(({ id, status, demand, capacity }) => ({
+        id,
+        status,
+        demand,
+        capacity,
+      })),
+    })),
+  };
+};
 
 describe("N3/N4 — esquema e migração", () => {
   it("inicia no esquema 6, com dois ramos e N4 Ø8 obrigatória", () => {
@@ -204,7 +208,12 @@ describe("N3/N4 — cálculo e sugestão", () => {
     "usa os ramos na sugestão sem alterar N4 ou demandas",
     (fixture) => {
       const input = fixture();
-      if (fixture === cantileverFixture) input.geometry.length = 700;
+      if (fixture === cantileverFixture)
+        Object.assign(input.geometry, {
+          length: 700,
+          width: 400,
+          tipHeight: 275,
+        });
       input.rebar.stirrupBranches = 4;
       input.rebar.constructiveDiameter = 12.5;
       const proposal = suggestReinforcement(input);
@@ -222,7 +231,7 @@ describe("N3/N4 — cálculo e sugestão", () => {
       expect(input.rebar.stirrupCount).toBe(5);
     },
   );
-  it("a bitola isolada de N4 não muda resultados resistentes ou sugestão", () => {
+  it("a bitola isolada de N4 preserva a resistência e passa a restringir a sugestão", () => {
     const p = shortFixture(),
       before = calculate(p),
       suggestion = suggestReinforcement(p);
@@ -230,13 +239,11 @@ describe("N3/N4 — cálculo e sugestão", () => {
     const after = calculate(p),
       other = suggestReinforcement(p);
     expect(numericResult(after)).toEqual(numericResult(before));
-    expect(other.piece.rebar).toEqual({
-      ...suggestion.piece.rebar,
-      constructiveDiameter: 25,
-    });
-    expect(numericResult(other.result)).toEqual(
-      numericResult(suggestion.result),
-    );
+    expect(suggestion.changed).toBe(true);
+    expect(other.changed).toBe(false);
+    expect(
+      other.result.checks.find((c) => c.id === "anchorN4Tail")?.status,
+    ).toBe("fail");
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
   it("preserva fendilhamento/suspensão nos campos e áreas exclusivos", () => {
@@ -464,7 +471,7 @@ describe("N3/N4 — geometria física e saídas", () => {
   it("detecta invasão de N1 inclusive na perna de ancoragem no suporte", () => {
     const p = shortFixture();
     p.design.supportAnchor = "hook";
-    p.detailing.supportHookProjection = 250;
+    p.detailing.supportHookProjection = 95;
     p.detailing.supportHookTail = 600;
     expect(buildDetail(p).issues).toContainEqual(
       expect.objectContaining({
@@ -486,12 +493,12 @@ describe("N3/N4 — geometria física e saídas", () => {
       ),
     ).toBe(true);
   });
-  it("detecta colisão no arco de N1 mesmo sem perna reta no gancho", () => {
+  it("detecta colisão no arco de N1 com uma ponta reta desprezível", () => {
     const p = shortFixture();
     Object.assign(p.geometry, { height: 110, tipHeight: 100 });
     p.design.supportAnchor = "hook";
-    p.detailing.supportHookProjection = 250;
-    p.detailing.supportHookTail = 0;
+    p.detailing.supportHookProjection = 95;
+    p.detailing.supportHookTail = 0.01;
     expect(buildDetail(p).issues).toContainEqual(
       expect.objectContaining({
         code: "constructive-tie-clash",

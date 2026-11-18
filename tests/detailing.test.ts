@@ -10,7 +10,13 @@ import { combineDrawings, pieceDrawing } from "../src/detailing/drawing";
 import { drawingDxf, drawingSvg, steelCsv } from "../src/detailing/exports";
 import { decodeProject, exampleProject } from "../src/domain/model";
 import { stirrupLayout } from "../src/domain/theory";
-import { toCsv, toDxf, toSvg } from "../src/lib/exports";
+import {
+  toCalculationJson,
+  toCsv,
+  toDxf,
+  toPdf,
+  toSvg,
+} from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
 
 describe("Centro de gravidade das barras e comprimentos de oficina", () => {
@@ -132,6 +138,43 @@ describe("Posições, tirante duplo e quadro de aço", () => {
       true,
     );
   });
+  it("incorpora ancoragens adotadas no comprimento de corte de N1, N2/N2I e N4", () => {
+    const p = shortFixture();
+    p.design.supportAnchor = "hook";
+    const d = buildDetail(p);
+    p.detailing.supportHookTail = 158;
+    p.detailing.stitchEmbedment = 250;
+    const manual = buildDetail(p);
+    const first = (detail: typeof d, mark: string) =>
+      detail.bars.find((b) => b.mark.startsWith(mark))!;
+    const { values } = d.result;
+    expect(
+      first(manual, "N1").exactLength - first(d, "N1").exactLength,
+    ).toBeCloseTo(2 * (158 - values.anchorN1_tail), 8);
+    for (const [mark, family, automatic] of [
+      ["N2-", "stitch", values.anchorN2_adopted],
+      ["N2I-", "lower", values.anchorN2I_adopted],
+    ] as const) {
+      const a = d.bars.find((b) => b.family === family)!;
+      const b = manual.bars.find((b) => b.mark === a.mark)!;
+      expect(a.mark.startsWith(mark.slice(0, -1))).toBe(true);
+      expect(b.exactLength - a.exactLength).toBeCloseTo(
+        2 * (250 - automatic),
+        8,
+      );
+      expect(b.cutLength).toBe(Math.ceil(b.exactLength - 1e-7));
+    }
+    p.geometry.columnWidth = 140;
+    const limited = buildDetail(p);
+    expect(first(limited, "N4").exactLength).toBeCloseTo(
+      first(d, "N4").exactLength -
+        (values.anchorN4_adopted - limited.result.values.anchorN4_adopted),
+      8,
+    );
+    expect(first(limited, "N4").cutLength).toBeLessThan(
+      first(d, "N4").cutLength,
+    );
+  });
   it("pinos não ganham aprovação estrutural por serem desenhados", () => {
     const p = shortFixture();
     p.detailing.pins = 2;
@@ -153,6 +196,30 @@ describe("Posições, tirante duplo e quadro de aço", () => {
   });
 });
 describe("Interoperabilidade e arquivos", () => {
+  it("exporta a ancoragem por família e os limites nominal e no eixo", async () => {
+    const p = shortFixture();
+    p.geometry.columnWidth = 207;
+    const project = { ...exampleProject(), pieces: [p] };
+    const d = buildDetail(p);
+    const audit = JSON.parse(toCalculationJson(project, p));
+    expect(audit.result.values).toEqual(d.result.values);
+    expect(audit.result.combinations[0].values).toEqual(
+      d.result.combinations[0].values,
+    );
+    const [, header, row] = toCsv(project)
+      .split("\r\n")
+      .map((line) => line.split(";"));
+    expect(row[header.indexOf('"N2 Limite nominal P − c (mm)"')]).toBe(
+      '"182,000"',
+    );
+    expect(row[header.indexOf('"N2 Limite no eixo P − c − φ/2 (mm)"')]).toBe(
+      '"178,850"',
+    );
+    const pdf = Buffer.from(await toPdf(project, p)).toString("latin1");
+    expect(pdf).toContain("Ancoragem por familia de armadura");
+    expect(pdf).toContain("Limite nominal P - c");
+    expect(pdf).toContain("Limite no eixo P - c - phi/2");
+  });
   it("migra esquemas 1 e 2 sem inventar aprovação do detalhamento", () => {
     const project = exampleProject();
     const legacy = {
