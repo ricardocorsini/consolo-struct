@@ -164,9 +164,41 @@ describe("CA4/CA5 — parada e poda comparadas à varredura completa", () => {
     expect(result.candidates).toBe(assessed.size);
     expect(result.piece).toEqual(full.piece);
     expect(result.result).toEqual(full.result);
+    expect(
+      [...assessed].every(
+        (p) => p.design.weldedBarDiameter === p.rebar.tieDiameter,
+      ),
+    ).toBe(true);
     expect(result.piece.design.weldResistancePerBar).toBe(
       input.design.weldResistancePerBar,
     );
+  });
+  it("sincroniza a barra soldada e preserva os dados de qualificação no arranjo sugerido", () => {
+    const input = shortFixture();
+    Object.assign(input.design, {
+      frontAnchor: "welded",
+      supportAnchor: "hook",
+      weldResistancePerBar: 12345,
+      weldSpecification: "Especificação de teste da solda",
+    });
+    const before = structuredClone(input);
+    const proposed = suggestReinforcement(input);
+    expect(proposed.changed).toBe(true);
+    expect(proposed.piece.rebar.tieDiameter).not.toBe(input.rebar.tieDiameter);
+    expect(proposed.piece.design.weldedBarDiameter).toBe(
+      proposed.piece.rebar.tieDiameter,
+    );
+    expect(proposed.piece.design.weldResistancePerBar).toBe(12345);
+    expect(proposed.piece.design.weldSpecification).toBe(
+      before.design.weldSpecification,
+    );
+    expect(
+      proposed.result.checks.find((c) => c.id === "weldDiameter")?.status,
+    ).toBe("pass");
+    expect(
+      proposed.result.checks.find((c) => c.id === "weldForce")?.capacity,
+    ).toBe(12345);
+    expect(input).toEqual(before);
   });
   it.each(Object.entries(autodesignCases))(
     "é idêntica à referência exaustiva com secundária em %s",

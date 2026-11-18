@@ -7,8 +7,17 @@ import {
 } from "../src/detailing/geometry";
 import { buildDetail } from "../src/detailing/model";
 import { combineDrawings, pieceDrawing } from "../src/detailing/drawing";
+import { elevationShapes } from "../src/detailing/projection";
+import { projectPlan } from "../src/detailing/rebarModel";
 import { drawingDxf, drawingSvg, steelCsv } from "../src/detailing/exports";
-import { decodeProject, exampleProject } from "../src/domain/model";
+import { buildSceneModel } from "../src/visualization/model3d";
+import {
+  decodeProject,
+  exampleProject,
+  newPiece,
+  withTieDiameter,
+} from "../src/domain/model";
+import { tieLayout } from "../src/domain/engine";
 import { stirrupLayout } from "../src/domain/theory";
 import {
   toCalculationJson,
@@ -18,6 +27,106 @@ import {
   toSvg,
 } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
+
+describe("N1 reto com gancho e barra transversal soldada (#67)", () => {
+  it("reproduz os 701,37 mm de desenvolvimento com um único BarPath", () => {
+    const p = newPiece(1);
+    const detail = buildDetail(p);
+    const bar = detail.bars.find((b) => b.family === "tie")!;
+    const [vertical, bend, horizontal] = bar.path.segments;
+    expect(bar.path.valid).toBe(true);
+    expect(bar.path.segments.map((s) => s.type)).toEqual([
+      "line",
+      "arc",
+      "line",
+    ]);
+    if (
+      vertical.type !== "line" ||
+      bend.type !== "arc" ||
+      horizontal.type !== "line"
+    )
+      throw new Error("Formato de N1 inesperado");
+    expect(vertical.a.x).toBe(-265);
+    expect(vertical.a.y - vertical.b.y).toBeCloseTo(160, 9);
+    expect(bend.radius).toBe(90);
+    expect(bend.sweep).toBeCloseTo(Math.PI / 2, 10);
+    expect(bend.radius * bend.sweep).toBeCloseTo(141.37, 2);
+    expect(horizontal.b.x - horizontal.a.x).toBeCloseTo(400, 10);
+    expect(horizontal.b.x).toBe(225);
+    expect(bar.mandrel).toBe(160);
+    expect(bar.hookExtra).toBe(0);
+    expect(bar.exactLength).toBe(bar.path.length);
+    expect(bar.exactLength).toBeCloseTo(701.37, 2);
+    expect(bar.cutLength).toBe(702);
+    expect(
+      bar.instances.every(
+        (i) => i.parts.length === 1 && i.parts[0].plane === "xz",
+      ),
+    ).toBe(true);
+    const weld = detail.result.checks.find((c) => c.id === "weldForce");
+    expect(weld?.demand).toBeCloseTo(157079.63, 2);
+    expect(weld?.capacity).toBe(0);
+    expect(weld?.status).toBe("fail");
+    const sheet = drawingSvg(pieceDrawing(exampleProject(), detail));
+    expect(sheet).toContain("Gancho de 90° no suporte");
+    expect(sheet).not.toContain("fora do plano da alça");
+  });
+
+  it("projeta TS tangente abaixo de N1 na elevação, na planta, no 3D e no quadro", () => {
+    const p = newPiece(1);
+    const detail = buildDetail(p);
+    const bar = detail.bars.find((b) => b.family === "welded")!;
+    const { x, z } = bar.locations[0];
+    const { geometry: g, rebar: r } = p;
+    expect(x).toBe(215);
+    expect(z).toBeCloseTo(61.3, 9);
+    expect(g.length - x - bar.diameter / 2).toBe(g.cover);
+    expect(z - tieLayout(p).rows[0].y).toBeCloseTo(
+      (r.tieDiameter + bar.diameter) / 2,
+      9,
+    );
+    expect(z + bar.diameter / 2).toBeLessThanOrEqual(g.height / 5);
+    expect(elevationShapes(p).find((s) => s.family === "welded")).toMatchObject(
+      {
+        center: { x, y: z },
+        diameter: 20,
+      },
+    );
+    expect(
+      projectPlan(detail).find(({ bar }) => bar.family === "welded")?.shape,
+    ).toMatchObject({
+      kind: "path",
+      path: { segments: [{ type: "line", a: { x, y: 25 }, b: { x, y: 275 } }] },
+    });
+    expect(buildSceneModel(p).steel.find((b) => b.id === "TS")?.points).toEqual(
+      [
+        [x, -125, -z],
+        [x, 125, -z],
+      ],
+    );
+    expect(drawingSvg(pieceDrawing(exampleProject(), detail))).toContain(
+      "Barra transversal soldada",
+    );
+    expect(steelCsv([detail])).toContain(
+      '"TS";"Barra transversal soldada";"CA-50";"20"',
+    );
+    expect(
+      detail.issues
+        .filter((i) => i.code.startsWith("weld-"))
+        .map((i) => i.code),
+    ).toEqual(["weld-review"]);
+    const crowded = buildDetail(withTieDiameter(p, 25));
+    expect(crowded.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "weld-depth", severity: "error" }),
+        expect.objectContaining({
+          code: "weld-stitch-clash",
+          severity: "error",
+        }),
+      ]),
+    );
+  });
+});
 
 describe("Centro de gravidade das barras e comprimentos de oficina", () => {
   it("alça U inclui duas curvas de 90° sem somar os cantos virtuais", () => {

@@ -4,7 +4,7 @@ import TechnicalViewport from "./TechnicalViewport";
 import { detailRequestKey, type DetailBundle } from "../detailing/job";
 import { cachedDetails, requestDetails } from "../detailing/service";
 import type { Piece, Project } from "../domain/model";
-import { number } from "../domain/model";
+import { number, withTieDiameter } from "../domain/model";
 import { NumericField } from "./NumericField";
 import { beamArrangementActive } from "../detailing/beam";
 import {
@@ -271,12 +271,7 @@ function Detailing({
                 max={40}
                 step={0.1}
                 value={piece.rebar.tieDiameter}
-                onChange={(v) =>
-                  update({
-                    ...piece,
-                    rebar: { ...piece.rebar, tieDiameter: v },
-                  })
-                }
+                onChange={(v) => update(withTieDiameter(piece, v))}
               />
               {beamArrangementActive(piece) && (
                 <p className="detail-tip">

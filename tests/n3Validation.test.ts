@@ -154,6 +154,8 @@ describe("N3G — bloqueios de fabricação e seção A–A", () => {
     (scenario) => {
       const p = newPiece(1);
       p.rebar.stirrupBranches = 4;
+      p.design.frontAnchor = "loop";
+      p.design.supportAnchor = "straight";
       if (scenario === "camada com três barras") {
         p.design.frontAnchor = "welded";
         p.rebar.tieCount = 3;

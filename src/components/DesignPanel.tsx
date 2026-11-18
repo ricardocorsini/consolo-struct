@@ -278,7 +278,7 @@ export default function DesignPanel({
               "mm",
               1,
               5,
-              25,
+              40,
             )}
             {num(
               "weldResistancePerBar",

@@ -279,17 +279,15 @@ describe("Fonte única das armaduras (#63)", () => {
     expect(scene.steel.filter((s) => s.id === "TS")).toHaveLength(
       model.bars.filter((b) => b.family === "welded").length,
     );
-    // Each straight N1 bar is followed by its support hook, with arcs.
+    // Each N1 has one continuous trajectory including the support hook.
     const ties = model.bars.filter((b) => b.family === "tie");
     const legs = ties.reduce((n, b) => n + b.quantity, 0);
     const n1 = scene.steel.filter((s) => s.id === "N1");
-    expect(n1).toHaveLength(2 * legs);
-    const hooks = n1.filter((s) => s.points.length > 2);
-    expect(hooks).toHaveLength(legs);
-    for (const hook of hooks)
+    expect(n1).toHaveLength(legs);
+    for (const bar of n1)
       expect(
-        Math.max(...hook.points.map((pt) => -pt[2])) -
-          Math.min(...hook.points.map((pt) => -pt[2])),
+        Math.max(...bar.points.map((pt) => -pt[2])) -
+          Math.min(...bar.points.map((pt) => -pt[2])),
       ).toBeGreaterThan(values.anchorN1_tail);
   });
 
@@ -387,8 +385,10 @@ describe("Fonte única das armaduras (#63)", () => {
     ]);
   });
 
-  it("distingue os ramos configurados dos desenhados na peça padrão", async () => {
+  it("distingue os ramos configurados dos desenhados em uma peça com alças", async () => {
     const p = newPiece(1);
+    p.design.frontAnchor = "loop";
+    p.design.supportAnchor = "straight";
     p.quantity = 3;
     const project = { ...exampleProject(), pieces: [p] };
     const detail = buildDetail(p);

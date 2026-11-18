@@ -2,6 +2,11 @@ import { area, type Piece } from "./model";
 import { calculate, tieLayout, type CalculationResult } from "./engine";
 import { reactionGeometry, stirrupLayout, upperStitchLayout } from "./theory";
 import { beamArrangementActive } from "../detailing/beam";
+import {
+  connectionGeometry,
+  weldedFrontIssues,
+} from "../detailing/connections";
+import { concreteProfile } from "./profile";
 export interface DesignProposal {
   piece: Piece;
   result: CalculationResult;
@@ -123,6 +128,7 @@ export function suggestReinforcement(input: Piece): DesignProposal {
     "loopWidth",
     "loopEven",
     "loopSteel",
+    "weldDiameter",
     "cover",
     "literatureHorizontal",
     "literatureTip",
@@ -188,6 +194,8 @@ export function suggestReinforcement(input: Piece): DesignProposal {
         const p = structuredClone(input);
         p.rebar.tieCount = count;
         p.rebar.tieDiameter = diameter;
+        if (p.design.frontAnchor === "welded")
+          p.design.weldedBarDiameter = diameter;
         p.design.tieLayers = layers;
         if (
           layers > count ||
@@ -214,6 +222,22 @@ export function suggestReinforcement(input: Piece): DesignProposal {
             .filter((c) => critical.has(c.id) && c.status === "fail")
             .map((c) => [c.id, c.label]),
         );
+        if (
+          !failures.size &&
+          r.combinations.length &&
+          p.design.frontAnchor === "welded" &&
+          !beamArrangementActive(p)
+        ) {
+          const layout = tieLayout(p);
+          const { welded } = connectionGeometry(p, layout);
+          for (const { code, message } of weldedFrontIssues(
+            p,
+            welded,
+            upperStitchLayout(p, layout).levels,
+            concreteProfile(p),
+          ))
+            failures.set(code, message);
+        }
         commonFailures =
           commonFailures === undefined
             ? new Map(failures)

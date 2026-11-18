@@ -3,6 +3,11 @@
 import { area, type Piece } from "../../src/domain/model";
 import { beamArrangementActive } from "../../src/detailing/beam";
 import {
+  connectionGeometry,
+  weldedFrontIssues,
+} from "../../src/detailing/connections";
+import { concreteProfile } from "../../src/domain/profile";
+import {
   calculate,
   tieLayout,
   type CalculationResult,
@@ -103,6 +108,7 @@ export function exhaustiveSecondarySearch(input: Piece) {
     "loopWidth",
     "loopEven",
     "loopSteel",
+    "weldDiameter",
     "cover",
     "literatureHorizontal",
     "literatureTip",
@@ -155,6 +161,8 @@ export function exhaustiveSecondarySearch(input: Piece) {
       for (let layers = 1; layers <= 3; layers++) {
         const p = structuredClone(input);
         Object.assign(p.rebar, { tieDiameter: diameter, tieCount: count });
+        if (p.design.frontAnchor === "welded")
+          p.design.weldedBarDiameter = diameter;
         p.design.tieLayers = layers;
         if (
           layers > count ||
@@ -177,6 +185,19 @@ export function exhaustiveSecondarySearch(input: Piece) {
           r.checks.some((c) => critical.has(c.id) && c.status === "fail")
         )
           continue;
+        if (p.design.frontAnchor === "welded" && !beamArrangementActive(p)) {
+          const layout = tieLayout(p);
+          const { welded } = connectionGeometry(p, layout);
+          if (
+            weldedFrontIssues(
+              p,
+              welded,
+              upperStitchLayout(p, layout).levels,
+              concreteProfile(p),
+            ).length
+          )
+            continue;
+        }
         const rank = area(count, diameter) + layers * 0.001 + count * 0.00001;
         if (rank < score) {
           best = p;

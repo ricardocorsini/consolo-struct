@@ -17,6 +17,59 @@ test.beforeEach(async ({ page }) => {
     .click();
 });
 
+test("projeto e peça novos usam N1 com gancho e TS de mesma bitola", async ({
+  page,
+}) => {
+  await page.getByRole("tab", { name: "Arquivo", exact: true }).click();
+  await page.getByRole("button", { name: "Novo projeto", exact: true }).click();
+  await page
+    .getByLabel("Nome do projeto", { exact: true })
+    .fill("Ancoragem padrão");
+  await page
+    .getByRole("button", { name: "Criar projeto", exact: true })
+    .click();
+  const elevation = page.locator("#piece-drawing");
+  const welded = elevation.locator('[data-mark="TS"] circle');
+  await expect(welded).toHaveCount(1);
+  const scale = Math.min(480 / 550, 340 / 480);
+  expect(Number(await welded.getAttribute("cy"))).toBeCloseTo(
+    185 + 61.3 * scale,
+    8,
+  );
+  expect(Number(await welded.getAttribute("r"))).toBeCloseTo(10 * scale, 8);
+  await page.getByRole("tab", { name: "Início", exact: true }).click();
+  await page.getByRole("button", { name: "Novo consolo", exact: true }).click();
+  await page
+    .locator(".ribbon-panel")
+    .getByRole("button", { name: "Detalhamento", exact: true })
+    .click();
+  const canvas = page.locator(".detail-canvas");
+  await expect(canvas).toContainText("Gancho de 90° no suporte");
+  await expect(canvas).toContainText("Barra transversal soldada");
+  const diameter = page.getByLabel("Bitola do tirante");
+  await diameter.fill("16");
+  await diameter.press("Enter");
+  await expect(canvas).toContainText("Ø16,0");
+  const event = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Salvar projeto", exact: true })
+    .click();
+  const saved = JSON.parse(
+    await readFile((await (await event).path())!, "utf8"),
+  );
+  expect(
+    saved.pieces.map((p: { design: Record<string, unknown> }) => [
+      p.design.frontAnchor,
+      p.design.supportAnchor,
+      p.design.weldedBarDiameter,
+      p.design.weldResistancePerBar,
+    ]),
+  ).toEqual([
+    ["welded", "hook", 20, 0],
+    ["welded", "hook", 16, 0],
+  ]);
+});
+
 test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", async ({
   page,
 }) => {

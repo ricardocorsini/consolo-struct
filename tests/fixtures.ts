@@ -35,7 +35,9 @@ export function shortFixture() {
     bearingLength: 100,
     bearingWidth: 350,
     bearingHeight: 10,
+    frontAnchor: "loop",
     loopInternalDiameter: 100,
+    supportAnchor: "straight",
     supportAnchorLength: 850,
     anchorConfinementArea: 100,
     supportRebarArea: 1000,
@@ -94,6 +96,8 @@ export function cantileverFixture({
     supportType: "elastomer",
     bearingLength: 100,
     bearingHeight: 0,
+    frontAnchor: "loop",
+    supportAnchor: "straight",
   };
   return p;
 }

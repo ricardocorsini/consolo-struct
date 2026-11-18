@@ -95,6 +95,7 @@ describe("Geometria técnica 3D", () => {
     p.rebar.tieCount = 6;
     p.design.tieLayers = 2;
     p.design.frontAnchor = "welded";
+    p.design.supportAnchor = "straight";
     const m = buildSceneModel(p),
       ties = m.steel.filter((b) => b.id === "N1");
     expect(ties).toHaveLength(6);

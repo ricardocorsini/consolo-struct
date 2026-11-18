@@ -23,6 +23,10 @@ O módulo produz desenhos locais soltos: elevação de armaduras, planta dos tir
 
 **Duplo** significa duas camadas de tirante na mesma face do suporte; não representa consolos nos dois lados de um pilar. A contagem de ramos e a bitola são os dados físicos já usados no motor. Alterar o número de camadas recalcula o centroide e a altura útil.
 
+Peças novas usam N1 reto com barra transversal soldada TS na ponta e gancho vertical de 90° para baixo no suporte. A forma de N1 contém a reta longitudinal, o arco e a ponta reta no mesmo plano. A elevação, os cortes, o 3D, a prancha e o comprimento de corte usam esse percurso. [Comparação antes e depois](images/n1-ancoragem-padrao.png).
+
+A extremidade de N1 termina em `x = L − c`. O eixo de TS fica em `x = L − c − φTS/2`, abaixo do eixo de N1 na camada. A diferença de profundidade entre os eixos é `(φN1 + φTS)/2`. TS termina com cobrimento lateral `c` nas duas faces. O detalhamento aponta falta de cobrimento, invasão do quinto superior ou interferência com a costura N2. A sugestão descarta esses arranjos.
+
 Uma alça horizontal em U fornece **dois ramos longitudinais**. Portanto, quatro ramos não são quatro alças: são duas barras físicas em U, distribuídas conforme as camadas escolhidas. Cada camada deve ter contagem par. O quadro conta barras físicas. As camadas e formas diferentes têm posições próprias, com o diâmetro interno frontal da segunda camada configurável; zero repete o valor principal.
 
 As alças de uma mesma camada são aninhadas, respeitando mandris, cobrimento, distância livre e espaçamento máximo entre ramos. Uma combinação que não cabe recebe pendência impeditiva, sem diminuir o mandril para produzir uma aparência de solução. Na ancoragem soldada, os ramos retos e a barra transversal são quantificados separadamente; as soldas precisam de sua especificação e verificação.

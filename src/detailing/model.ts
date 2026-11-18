@@ -25,7 +25,7 @@ import {
   translatePath,
   pathsClash,
 } from "./transverse";
-import { connectionGeometry } from "./connections";
+import { connectionGeometry, weldedFrontIssues } from "./connections";
 import {
   partPoints3,
   pathExtent,
@@ -552,13 +552,14 @@ export function buildRebarGeometry(
             "A curva frontal da alça invade a projeção da placa de apoio. Aumente a distância da placa à ponta.",
           );
       } else {
-        const startX = -back + (q.supportAnchor === "hook" ? mainR : 0);
+        const front = g.length - g.cover;
         const path = roundedPath(
           [
-            { x: startX, y: 0 },
-            { x: mainFront, y: 0 },
+            ...(hook ? [{ x: -back, y: mainR + hookTail }] : []),
+            { x: -back, y: 0 },
+            { x: front, y: 0 },
           ],
-          0,
+          hook ? mainR : 0,
         );
         const positions = beamBarPositions(p, row.count, r.tieDiameter);
         add({
@@ -569,10 +570,9 @@ export function buildRebarGeometry(
           path,
           mandrel: mainD,
           width: 0,
-          height: mainFront + back,
-          hookTail: q.supportAnchor === "hook" ? hookTail : 0,
-          hookExtra:
-            q.supportAnchor === "hook" ? (Math.PI * mainR) / 2 + hookTail : 0,
+          height: front + back,
+          hookTail,
+          hookExtra: 0,
           note: `Camada ${layer + 1}; ancoragem frontal soldada${q.supportAnchor === "hook" ? "; gancho de 90° no suporte" : ""}`,
           spacing: pitchOf(positions),
           anchorage: [
@@ -589,19 +589,14 @@ export function buildRebarGeometry(
             layer,
           })),
           instances: positions.map((v) =>
-            instance([
-              placed("xz", v, translatePath(path, 0, row.y)),
-              ...(q.supportAnchor === "hook"
-                ? [placed("xz", v, supportHook(startX, row.y, mainR), "hook")]
-                : []),
-            ]),
+            instance([placed("xz", v, translatePath(path, 0, row.y))]),
           ),
         });
         const welded = connections.welded.find((bar) => bar.layer === layer)!;
         add({
           family: "welded",
           description: "Barra transversal soldada",
-          diameter: q.weldedBarDiameter,
+          diameter: welded.diameter,
           grade: p.materials.fyk,
           path: roundedPath(
             [
@@ -761,6 +756,12 @@ export function buildRebarGeometry(
   const upperStitch = upperStitchLayout(p, layout);
   const stitchStart = upperStitch.start;
   const stitchEnd = upperStitch.end;
+  weldedFrontIssues(
+    p,
+    connections.welded,
+    stitchEnd >= stitchStart ? upperStitch.levels : [],
+    concrete,
+  ).forEach(({ code, message }) => issue(code, message));
   if (stitchStart >= stitchEnd)
     issue(
       "stitch-zone",

@@ -27,6 +27,7 @@ import { NumericField } from "./NumericField";
 import {
   area,
   number,
+  withTieDiameter,
   type Piece,
   type InspectorTab,
   type GeometryKey,
@@ -401,15 +402,17 @@ function Inspector({
                     <select
                       aria-label={`Diâmetro ${b.id}`}
                       value={p.rebar[b.diameter]}
-                      onChange={(e) =>
-                        update({
-                          ...p,
-                          rebar: {
-                            ...p.rebar,
-                            [b.diameter]: Number(e.target.value),
-                          },
-                        })
-                      }
+                      onChange={(e) => {
+                        const diameter = Number(e.target.value);
+                        update(
+                          b.diameter === "tieDiameter"
+                            ? withTieDiameter(p, diameter)
+                            : {
+                                ...p,
+                                rebar: { ...p.rebar, [b.diameter]: diameter },
+                              },
+                        );
+                      }}
                     >
                       {[5, 6.3, 8, 10, 12.5, 16, 20, 25, 32, 40]
                         .filter((d) => (b.id === "N1" ? d >= 6.3 : d <= 25))

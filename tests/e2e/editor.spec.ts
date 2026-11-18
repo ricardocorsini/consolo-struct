@@ -494,6 +494,7 @@ test("seção A–A: d’ acompanha o centroide, cobrimento, bitolas e camadas d
     .click();
   await page.getByLabel("Diâmetro N1").selectOption("16");
   piece.rebar.tieDiameter = 16;
+  piece.design.weldedBarDiameter = 16;
   await expectSectionDPrime(page, piece);
   await page.getByLabel("Diâmetro N3").selectOption("8");
   piece.rebar.stirrupDiameter = 8;

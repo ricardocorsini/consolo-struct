@@ -858,7 +858,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
           .join(" / ")} cm; dobras nas duas extremidades.`,
         2.05,
       );
-    else if (b.family === "tie") {
+    else if (b.family === "tie" && b.width > 0) {
       text(
         cardX,
         cardY + card.h - (b.hookTail ? 28 : 16),
@@ -895,6 +895,20 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
           2.05,
         );
       }
+    } else if (b.family === "tie") {
+      text(
+        cardX,
+        cardY + card.h - 16,
+        `Projeção longitudinal = ${cm(b.height)} cm`,
+        2.05,
+      );
+      if (b.hookTail)
+        text(
+          cardX,
+          cardY + card.h - 5,
+          `Gancho de 90° no suporte · ponta reta = ${cm(b.hookTail)} cm`,
+          2.05,
+        );
     }
     text(cardX, cardY + card.h - 10, b.note.slice(0, 115), 2.05);
     if (b.family === "stirrup" || b.family === "stirrupInner")
