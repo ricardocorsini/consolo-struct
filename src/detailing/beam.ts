@@ -88,6 +88,17 @@ export function beamBarPositions(p: Piece, count: number, diameter: number) {
   );
 }
 
+/** Axes of the two vertical legs of an N1 layer. */
+export function beamTieBends(p: Piece, layer: number) {
+  const { geometry: g, design: q, rebar: r } = p;
+  const phi = r.tieDiameter;
+  const offset = layer * (phi + Math.max(20, phi, 0.5 * q.aggregate));
+  return {
+    front: g.length - g.cover - phi / 2 - offset,
+    back: -(g.columnWidth - g.cover - phi / 2) + offset,
+  };
+}
+
 export function beamLayout(
   p: Piece,
   values: Record<string, number> = calculate(p).values,
@@ -134,15 +145,13 @@ export function beamLayout(
 
   const mandrel = mandrelDiameter(phi, p.materials.fyk);
   const radius = (mandrel + phi) / 2;
-  const layerPitch = phi + Math.max(20, phi, 0.5 * q.aggregate);
   const rows = layout.rows
     .map((row, layer) => ({ row, layer }))
     .filter(({ row }) => row.count > 0);
   const top = rows.map(({ row, layer }) => {
     const z = row.y;
     // Nest the bends: coincident leg axes would overlap across tie layers.
-    const xFront = g.length - g.cover - phi / 2 - layer * layerPitch;
-    const xBack = -(g.columnWidth - g.cover - phi / 2) + layer * layerPitch;
+    const { front: xFront, back: xBack } = beamTieBends(p, layer);
     const back = end(
       lbNecTop,
       -xBack - radius,

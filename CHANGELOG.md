@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Corrige o cobrimento frontal de N4 (issue #66). No consolo convencional, a face externa da barra fica à distância de cobrimento da ponta. No modo viga, a dobra se posiciona a partir da perna frontal interna de N1. As vistas, a prancha e o quadro usam o percurso atualizado. O CSV geral e o PDF da memória exibem o comprimento desenvolvido e o de corte.
+
 - Motor 0.6.0 (issue #65). Verifica a ancoragem das famílias N1, N2, N2I, N3/N3G, N4 e P1 e registra a conferência de N5, N6 e PINO. Para N2, N2I e N4, usa o limite no eixo da barra e mostra também a distância nominal até o cobrimento. O modelo das barras, a memória, o PDF, o CSV geral e o cálculo auditável usam os comprimentos verificados. O valor zero ativa a ancoragem automática nos campos de gancho de N1 e penetração das costuras. Os valores explícitos nos projetos salvos continuam válidos no esquema 6.
 
 - Completa os quantitativos da issue #63 por posição de armadura. A relação, os resumos e os CSVs usam os valores do modelo. O CSV do projeto inclui consumo de aço e concreto por peça. O resumo geral mostra o volume total de concreto e a taxa de aço do projeto. O espaçamento de N3/N3G usa as estações efetivamente detalhadas.

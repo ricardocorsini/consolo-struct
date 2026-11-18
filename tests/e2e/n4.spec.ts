@@ -57,6 +57,48 @@ async function audit(page: Page) {
   return JSON.parse(await readFile((await (await event).path())!, "utf8"));
 }
 
+test("o eixo frontal e o quadro de N4 acompanham o cobrimento da peça padrão", async ({
+  page,
+}) => {
+  const project = exampleProject();
+  await page.addInitScript((raw) => {
+    localStorage.setItem("consolostruct.project.v1", raw);
+  }, JSON.stringify(project));
+  await page.goto("/");
+  await rebar(page);
+  const n4 = page.locator(".steel-N4 path");
+  await expect(n4).toHaveCount(2);
+  const diameter = page.getByLabel("Diâmetro N1", { exact: true });
+  const { geometry: g, rebar: r } = project.pieces[0];
+  const scale = Math.min(
+    480 / (g.columnWidth + g.length),
+    340 / (g.height + 80),
+  );
+  const front = (800 + (g.columnWidth + g.length) * scale) / 2;
+  for (const phi of ["10", "25", "20"]) {
+    const previous = await n4.first().getAttribute("d");
+    await diameter.selectOption(phi);
+    await expect(n4.first()).not.toHaveAttribute("d", previous!);
+    const end = await n4.first().evaluate((bar: SVGPathElement) => {
+      const box = bar.getBBox();
+      return box.x + box.width;
+    });
+    expect((front - end) / scale - r.constructiveDiameter / 2).toBeCloseTo(
+      g.cover,
+      3,
+    );
+  }
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Detalhamento", exact: true })
+    .click();
+  const sheet = page.locator(".detail-canvas");
+  await expect(
+    sheet.locator('line.detail-ARMADURAS[x1="67.1"][x2="67.1"]').first(),
+  ).toBeAttached();
+  await expect(sheet).toContainText("C=48,4");
+});
+
 test("migra, edita ramos/bitola, desfaz/refaz e salva por peça", async ({
   page,
 }) => {

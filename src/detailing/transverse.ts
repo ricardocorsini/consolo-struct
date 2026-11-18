@@ -3,7 +3,7 @@ import { constructiveAnchorage } from "../domain/anchorage";
 import { tieLayout } from "../domain/engine";
 import { stirrupLayout } from "../domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../domain/profile";
-import { beamArrangementActive, beamBarPositions } from "./beam";
+import { beamArrangementActive, beamBarPositions, beamTieBends } from "./beam";
 import {
   closedStirrup,
   mandrelDiameter,
@@ -292,6 +292,8 @@ export function constructiveGeometry(
   const g = p.geometry,
     r = p.rebar;
   const diameter = t.diameter;
+  const axisCover = g.cover + diameter / 2;
+  const layout = tieLayout(p);
   const support = constructiveAnchorage(p);
   const nominalMandrel = mandrelDiameter(diameter, p.materials.fykTransverse);
   const nominalRadius = (nominalMandrel + diameter) / 2;
@@ -305,7 +307,10 @@ export function constructiveGeometry(
       m = (v.depth - a.depth) / (v.x - a.x);
     return { m, b: a.depth - m * a.x - t.offset * Math.sqrt(1 + m * m) };
   });
-  const end = g.length - g.cover - r.tieDiameter - diameter / 2;
+  const innerLayer = Math.min(layout.rows.length, r.tieCount) - 1;
+  const end = beamArrangementActive(p)
+    ? beamTieBends(p, innerLayer).front - r.tieDiameter / 2 - diameter / 2
+    : g.length - axisCover;
   const back = -support.adopted;
   const corners = lines
     .slice(1)
@@ -323,10 +328,7 @@ export function constructiveGeometry(
       ?.m ?? lines.at(-1)!.m;
   const tangent = radius * Math.tan((Math.PI / 2 + Math.atan(lastSlope)) / 2);
   const ceiling =
-    tieLayout(p).maxDepth +
-    r.tieDiameter / 2 +
-    diameter / 2 +
-    Math.max(20, diameter);
+    layout.maxDepth + r.tieDiameter / 2 + diameter / 2 + Math.max(20, diameter);
   const tailAvailable = Math.max(0, bottom(end) - tangent - ceiling);
   const tail = Math.max(8 * diameter, tailAvailable);
   const vertices = [
@@ -348,23 +350,25 @@ export function constructiveGeometry(
     problems.push(
       "N4 não comporta o percurso, o mandril e as dobras no contorno informado.",
     );
-  for (const pt of samplePath(path, 32)) {
-    if (
-      pt.y < g.cover + diameter / 2 - 1e-6 ||
-      pt.x < -g.columnWidth + g.cover + diameter / 2 - 1e-6 ||
-      pt.x > g.length - g.cover - diameter / 2 + 1e-6 ||
-      pt.y >
-        (pt.x < 0
-          ? g.height - g.cover - diameter / 2
-          : bottomOffsetDepth(concrete, pt.x, g.cover + diameter / 2)) +
-          1e-6
-    ) {
-      problems.push(
-        "O percurso de N4 invade o cobrimento; rever geometria sem reduzir bitola, cobrimento ou dobra.",
-      );
-      break;
-    }
-  }
+  if (
+    t.positions.some(
+      (y) => y < axisCover - 1e-6 || y > g.width - axisCover + 1e-6,
+    ) ||
+    samplePath(path, 32).some(
+      (pt) =>
+        pt.y < axisCover - 1e-6 ||
+        pt.x < -g.columnWidth + axisCover - 1e-6 ||
+        pt.x > g.length - axisCover + 1e-6 ||
+        pt.y >
+          (pt.x < 0
+            ? g.height - axisCover
+            : bottomOffsetDepth(concrete, pt.x, axisCover)) +
+            1e-6,
+    )
+  )
+    problems.push(
+      "O percurso de N4 invade o cobrimento; rever geometria sem reduzir bitola, cobrimento ou dobra.",
+    );
   return {
     ...t,
     support,

@@ -41,6 +41,8 @@ A guia Armaduras permite escolher **2 ou 4 ramos efetivos de N3 por posição**.
 
 O eixo longitudinal acompanha a poligonal inferior com afastamento normal baseado em cobrimento, bitola N3, metade da bitola N4 e folga para o canto arredondado do estribo. As posições transversais são simétricas, uma por vértice inferior interno. No suporte, o percurso usa o comprimento calculado de N4 com o limite de cobrimento no eixo. Na frente, a barra dobra verticalmente com o mandril da própria bitola. O motor verifica o percurso a partir da borda interna do aparelho de apoio e o espaço para a ponta reta mínima de 8φ abaixo de N1.
 
+No arranjo convencional, o eixo da ponta vertical de N4 fica em `L − c − φN4/2`. Na peça padrão, o eixo está em 221 mm e o cobrimento livre frontal é de 25 mm para qualquer bitola de N1. No modo **Armado como viga**, o eixo é posicionado para dentro da perna frontal de N1 da camada mais interna, com afastamento entre eixos de `(φN1 + φN4)/2`. [Comparação antes e depois](images/n4-cobrimento-frontal.png).
+
 `detailing/transverse.ts` é a fonte comum das formas N3/N4, projeções da modelagem, seções, 3D e quadros. Arcos e retas do eixo determinam o desenvolvimento; o corte da N4 nos desenhos considera interseções reais do percurso com o plano da seção. A quantidade do tipo multiplica comprimento e massa uma única vez.
 
 Falta de espaço, invasão de cobrimento e colisão com N1 geram pendência impeditiva. Não se reduzem bitola, cobrimento, mandril ou ponta para aparentar solução. No modo viga, a positiva continua independente, identificada como **P1**; N4 também é produzida e eventual colisão entre as famílias deve ser compatibilizada pelo projetista. As barras são mantidas e quantificadas separadamente enquanto houver a pendência.
@@ -63,6 +65,8 @@ As formas de estribos verticais acompanham a face inferior inclinada com cobrime
 ## Quadro de aço
 
 O quadro e o CSV de detalhamento usam quantidade, comprimento e massa armazenados por posição. O CSV do projeto traz o volume de concreto e o aço detalhado por peça, além dos totais do tipo. No resumo geral de todos os consolos, a taxa de aço é a massa total dividida pelo volume total de concreto.
+
+O CSV geral e o PDF da memória exibem o comprimento desenvolvido de N4 em centímetros com três casas decimais. O valor de corte C e a massa usam o arredondamento de fabricação adotado na relação do aço.
 
 Cada linha contém posição, aço, bitola, barras por peça, barras totais, C unitário, C total e massa total. O resumo agrupa por classe de aço e bitola. A quantidade do tipo multiplica os quantitativos uma única vez. O resumo geral soma todos os tipos; a identificação completa de uma posição é, por exemplo, **C01/N1**.
 

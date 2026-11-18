@@ -977,9 +977,27 @@ export function buildRebarGeometry(
       tolerance: pathSamplingError(outline, 48),
     };
   });
-  for (const other of bars.filter(
-    (b) => b.family === "tie" || b.family === "positive",
-  )) {
+  const n4Clashes = {
+    tie: [
+      "constructive-tie-clash",
+      "N4 interfere com N1. Reveja o arranjo de armaduras.",
+    ],
+    positive: [
+      "constructive-positive-clash",
+      "N4 e a positiva P1 do modo viga interferem. Compatibilize o arranjo. As barras estão quantificadas separadamente.",
+    ],
+    welded: [
+      "constructive-welded-clash",
+      "A dobra frontal de N4 interfere com a barra transversal soldada TS. Reveja a altura e o arranjo na ponta.",
+    ],
+  } as const;
+  for (const other of bars) {
+    if (
+      other.family !== "tie" &&
+      other.family !== "positive" &&
+      other.family !== "welded"
+    )
+      continue;
     // The very same placed bars (bodies and support hooks) shown in every view.
     const paths = other.instances.flatMap((bar) =>
       bar.parts.map((part) => ({
@@ -992,15 +1010,10 @@ export function buildRebarGeometry(
       n4Paths.some((n4) =>
         paths.some((path) => pathsClash(n4, path.points, minimum)),
       )
-    )
-      issue(
-        other.family === "tie"
-          ? "constructive-tie-clash"
-          : "constructive-positive-clash",
-        other.family === "tie"
-          ? "N4 interfere com N1; rever o arranjo sem reduzir cobrimento, bitola ou dobra."
-          : "N4 e a positiva P1 do modo viga interferem. Compatibilize o arranjo; ambas foram mantidas e quantificadas separadamente.",
-      );
+    ) {
+      const [code, message] = n4Clashes[other.family];
+      issue(code, message);
+    }
     if (
       other.family === "tie" &&
       transversePaths.some((stirrup) =>

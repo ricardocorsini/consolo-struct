@@ -9,6 +9,7 @@ import {
   exampleProject,
   fingerprint,
   newPiece,
+  number,
   rebarSchema,
 } from "../src/domain/model";
 import { calculate, type CalculationResult } from "../src/domain/engine";
@@ -16,6 +17,7 @@ import { suggestReinforcement } from "../src/domain/autodesign";
 import { stirrupLayout } from "../src/domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../src/domain/profile";
 import { buildDetail } from "../src/detailing/model";
+import { beamLayout } from "../src/detailing/beam";
 import {
   samplePath,
   pathLength,
@@ -275,6 +277,85 @@ describe("N3/N4 — cálculo e sugestão", () => {
 });
 
 describe("N3/N4 — geometria física e saídas", () => {
+  it.each([10, 20, 25])(
+    "mantém cobrimento frontal de 25 mm no consolo convencional com N1 Ø%s",
+    (tieDiameter) => {
+      const p = newPiece(1);
+      p.rebar.tieDiameter = tieDiameter;
+      const n4 = constructiveGeometry(p);
+      const maxX = Math.max(...samplePath(n4.path, 32).map((pt) => pt.x));
+      expect(n4.end).toBe(221);
+      expect(p.geometry.length - maxX - n4.diameter / 2).toBeCloseTo(
+        p.geometry.cover,
+        9,
+      );
+      for (const y of n4.positions)
+        expect(
+          Math.min(y, p.geometry.width - y) - n4.diameter / 2,
+        ).toBeGreaterThanOrEqual(p.geometry.cover);
+      expect(n4.problems).toEqual([]);
+    },
+  );
+  it("reproduz a referência da ponta e dimensiona o trecho no suporte conforme a #65", () => {
+    const p = newPiece(1);
+    const n4 = constructiveGeometry(p);
+    const detail = buildDetail(p);
+    const bar = detail.bars.find((b) => b.family === "constructive")!;
+    expect(n4.end).toBeCloseTo(221, 2);
+    expect(n4.vertices.at(-2)!.y).toBeCloseTo(173.27, 2);
+    expect(n4.tail).toBeCloseTo(76.43, 2);
+    // The issue's reference uses a 271 mm straight penetration to isolate the tip.
+    const referenceLength = n4.path.length + (271 + n4.back);
+    expect(Math.abs(referenceLength - 639.78)).toBeLessThan(0.05);
+    expect(Math.ceil(referenceLength - 1e-7)).toBe(640);
+    expect(-n4.back).toBe(detail.result.values.anchorN4_adopted);
+    expect(-n4.back).toBeCloseTo(114.37, 2);
+    expect(bar.exactLength).toBeCloseTo(483.14546, 4);
+    expect(bar.cutLength).toBe(484);
+    expect(bar.mass).toBeCloseTo(2 * steelMass(484, 8), 10);
+  });
+  it("posiciona N4 pelo eixo da perna interna real de N1 no modo viga", () => {
+    const p = shortFixture();
+    p.detailing.barArrangement = "beam";
+    p.design.tieLayers = 2;
+    p.geometry.tipHeight = 420;
+    const inner = beamLayout(p).top.at(-1)!;
+    const n4 = constructiveGeometry(p);
+    expect(inner.layer).toBe(1);
+    expect(n4.end).toBeCloseTo(
+      inner.vertices.at(-1)!.x - (inner.diameter + n4.diameter) / 2,
+      10,
+    );
+    expect(n4.end).toBe(369);
+    const detail = buildDetail(p);
+    expect(detail.issues).toContainEqual(
+      expect.objectContaining({
+        code: "constructive-positive-clash",
+        severity: "error",
+      }),
+    );
+    p.design.excessConcrete = "remove";
+    expect(constructiveGeometry(p).end).toBe(421);
+  });
+  it("sinaliza interferência com TS na ponta baixa sem encurtar a ponta mínima de N4", () => {
+    const p = newPiece(1);
+    p.design.frontAnchor = "welded";
+    p.design.weldedBarDiameter = 20;
+    const reference = buildDetail(p);
+    expect(
+      reference.issues.some((i) => i.code === "constructive-welded-clash"),
+    ).toBe(false);
+    p.geometry.tipHeight = 125;
+    const n4 = constructiveGeometry(p);
+    expect(n4.tail).toBe(64);
+    expect(n4.tailAvailable).toBeLessThan(64);
+    expect(buildDetail(p).issues).toContainEqual(
+      expect.objectContaining({
+        code: "constructive-welded-clash",
+        severity: "error",
+      }),
+    );
+  });
   it.each([6.3, 10, 16])(
     "grampo Ø%s conserva duas pontas retas completas e o desenvolvimento",
     (diameter) => {
@@ -559,8 +640,14 @@ describe("N3/N4 — geometria física e saídas", () => {
         })
         .join("\n");
       expect(streams).toContain("N4");
-      expect(new TextDecoder().decode(await toPdf(project, p))).toContain(
-        "N4 construtiva",
+      const developed = number(bar.exactLength / 10, 3);
+      const cut = number(bar.cutLength / 10, 1);
+      const calculationPdf = Buffer.from(await toPdf(project, p)).toString(
+        "latin1",
+      );
+      expect(calculationPdf).toContain("N4 construtiva");
+      expect(calculationPdf).toContain(
+        `N4 desenvolvida = ${developed} cm. C unitario = ${cut} cm.`,
       );
       const audit = JSON.parse(toCalculationJson(project, p));
       expect(audit.input.rebar).toMatchObject({
@@ -571,7 +658,16 @@ describe("N3/N4 — geometria física e saídas", () => {
         area(branches * 5, 6.3),
         10,
       );
-      expect(toCsv(project)).toContain("N4 massa total");
+      const [, headers, values] = toCsv(project)
+        .split("\r\n")
+        .map((line) => line.split(";"));
+      expect(
+        values[headers.indexOf('"N4 comprimento desenvolvido unitario (cm)"')],
+      ).toBe(`"${developed}"`);
+      expect(values[headers.indexOf('"N4 C unitario (cm)"')]).toBe(`"${cut}"`);
+      expect(values[headers.indexOf('"N4 massa total (kg)"')]).toBe(
+        `"${number(bar.totalMass, 3)}"`,
+      );
       expect(d.totalMass).toBeCloseTo(d.mass * 3, 10);
     },
   );
