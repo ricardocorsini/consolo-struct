@@ -5,12 +5,12 @@ import {
   samplePath,
   type BarPath,
   type Point,
-  type Segment,
 } from "./geometry";
 import { type Bar, type Detail } from "./model";
 import { reactionGeometry, stirrupLayout } from "../domain/theory";
 import { elevationTieBars, sectionBars } from "./projection";
 import { projectElevation, projectPlan, type ViewItem } from "./rebarModel";
+import { pathExtent } from "./rebarPlacement";
 import { bottomDepth, concreteProfile } from "../domain/profile";
 import { coefficientText, materialSafety } from "../domain/materialSafety";
 import {
@@ -28,7 +28,14 @@ export type Layer =
   | "EIXOS"
   | "ALERTAS";
 export type Entity =
-  | { type: "line"; a: Point; b: Point; layer: Layer; dash?: boolean }
+  | {
+      type: "line";
+      a: Point;
+      b: Point;
+      layer: Layer;
+      dash?: boolean;
+      thickness?: number;
+    }
   | {
       type: "arc";
       center: Point;
@@ -37,8 +44,15 @@ export type Entity =
       sweep: number;
       layer: Layer;
       dash?: boolean;
+      thickness?: number;
     }
-  | { type: "circle"; center: Point; radius: number; layer: Layer }
+  | {
+      type: "circle";
+      center: Point;
+      radius: number;
+      layer: Layer;
+      projectionCap?: boolean;
+    }
   | {
       type: "text";
       at: Point;
@@ -102,6 +116,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     y2: number,
     layer: Layer = "FORMAS",
     dash = false,
+    thickness?: number,
   ) =>
     entities.push({
       type: "line",
@@ -109,6 +124,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       b: { x: x2, y: y2 },
       layer,
       dash,
+      ...(thickness !== undefined ? { thickness } : {}),
     });
   const poly = (
     points: Point[],
@@ -154,32 +170,51 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       true,
       dash,
     );
-  const barPath = (
-    path: BarPath,
+  const barCircle = (
     x: number,
     y: number,
-    scale = 0.1,
+    diameter: number,
+    projectionCap = false,
+  ) =>
+    entities.push({
+      type: "circle",
+      center: { x, y },
+      radius: diameter / 20,
+      layer: "ARMADURAS",
+      ...(projectionCap ? { projectionCap } : {}),
+    });
+  const barPath = (
+    path: BarPath,
+    diameter: number,
+    x: number,
+    y: number,
     dash = false,
+    endCaps: Point[] = [],
   ) => {
+    const thickness = diameter / 10;
     for (const seg of path.segments) {
       if (seg.type === "line")
         line(
-          x + seg.a.x * scale,
-          y + seg.a.y * scale,
-          x + seg.b.x * scale,
-          y + seg.b.y * scale,
+          x + seg.a.x / 10,
+          y + seg.a.y / 10,
+          x + seg.b.x / 10,
+          y + seg.b.y / 10,
           "ARMADURAS",
           dash,
+          thickness,
         );
       else
         entities.push({
           ...seg,
-          center: { x: x + seg.center.x * scale, y: y + seg.center.y * scale },
-          radius: seg.radius * scale,
+          center: { x: x + seg.center.x / 10, y: y + seg.center.y / 10 },
+          radius: seg.radius / 10,
           layer: "ARMADURAS",
+          thickness,
           ...(dash ? { dash } : {}),
         });
     }
+    for (const cap of endCaps)
+      barCircle(x + cap.x / 10, y + cap.y / 10, diameter, true);
   };
   const dim = (
     x: number,
@@ -372,17 +407,18 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       if (drawn.has(key)) continue;
       drawn.add(key);
       if (shape.kind === "point")
-        entities.push({
-          type: "circle",
-          center: { x: ox + shape.center.x / 10, y: oy + shape.center.y / 10 },
-          radius: bar.diameter / 20,
-          layer: "ARMADURAS",
-        });
-      else barPath(shape.path, ox, oy, 0.1, dashed(bar));
+        barCircle(
+          ox + shape.center.x / 10,
+          oy + shape.center.y / 10,
+          bar.diameter,
+        );
+      else
+        barPath(shape.path, bar.diameter, ox, oy, dashed(bar), shape.endCaps);
     }
   };
   const projectedTies = elevationTieBars(p, d);
-  for (const projected of projectedTies) barPath(projected.path, x, y);
+  for (const { path, bar, endCaps } of projectedTies)
+    barPath(path, bar.diameter, x, y, false, endCaps);
   const elevation = projectElevation(d);
   drawShapes(
     elevation.filter(({ bar }) => bar.family !== "tie"),
@@ -452,26 +488,16 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     ox: number,
     oy: number,
   ) => {
-    for (const bar of section.stirrups) barPath(bar.path, ox, oy);
+    for (const bar of section.stirrups) barPath(bar.path, bar.diameter, ox, oy);
     for (const bar of [
       ...section.constructive,
       ...section.ties,
       ...section.positives,
     ])
-      entities.push({
-        type: "circle",
-        center: { x: ox + bar.v / 10, y: oy + bar.depth / 10 },
-        radius: bar.diameter / 20,
-        layer: "ARMADURAS",
-      });
+      barCircle(ox + bar.v / 10, oy + bar.depth / 10, bar.diameter);
     for (const bar of section.stitches)
       for (const v of bar.positions)
-        entities.push({
-          type: "circle",
-          center: { x: ox + v / 10, y: oy + bar.depth / 10 },
-          radius: bar.diameter / 20,
-          layer: "ARMADURAS",
-        });
+        barCircle(ox + v / 10, oy + bar.depth / 10, bar.diameter);
     for (const bar of section.lines)
       line(
         ox + bar.a.x / 10,
@@ -479,6 +505,8 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         ox + bar.b.x / 10,
         oy + bar.b.y / 10,
         "ARMADURAS",
+        false,
+        bar.diameter / 10,
       );
   };
   // A–A at the first stirrup: the juxtaposed N3/N3G pair is projected and
@@ -799,12 +827,28 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       maxX = Math.max(...xs),
       minY = Math.min(...ys),
       maxY = Math.max(...ys);
+    const hook = b.instances[0]?.parts.find(
+      (part) => part.role === "hook",
+    )?.path;
+    const [hookLeft, hookRight] = hook ? pathExtent(hook, "x") : [0, 0];
+    const [hookTop, hookBottom] = hook ? pathExtent(hook, "y") : [0, 0];
     return {
       b,
       minX,
       minY,
+      maxY,
+      hook,
+      hookLeft,
+      hookRight,
+      hookTop,
       w: Math.max(maxX - minX + 32, 140),
-      h: Math.max(maxY - minY + 43 + (b.hookTail ? 24 : 0), 72),
+      h: Math.max(
+        maxY -
+          minY +
+          43 +
+          (b.hookTail ? Math.max(24, (hookBottom - hookTop) / 10 + 9) : 0),
+        72,
+      ),
     };
   });
   let cardX = 10,
@@ -826,7 +870,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       `${b.description} · ${grade(b.grade)}${b.mandrel ? ` · D=${cm(b.mandrel)}` : ""}`,
       2.15,
     );
-    barPath(b.path, bx, by);
+    barPath(b.path, b.diameter, bx, by);
     const pts = samplePath(b.path),
       maxX = Math.max(...pts.map((v) => v.x)),
       maxY = Math.max(...pts.map((v) => v.y));
@@ -859,39 +903,38 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         2.05,
       );
     else if (b.family === "tie" && b.width > 0) {
+      const hookY = cardY + 33 + card.maxY - card.minY;
       text(
         cardX,
-        cardY + card.h - (b.hookTail ? 28 : 16),
+        card.hook ? hookY - 3 : cardY + card.h - 16,
         `Projeção total=${cm(b.height)}; largura entre eixos=${cm(b.width)} cm`,
         2.05,
       );
-      if (b.hookTail) {
-        const hx = cardX + 5,
-          hy = cardY + card.h - 25;
-        poly(
-          [
-            { x: hx, y: hy + 13 },
-            { x: hx, y: hy },
-            { x: hx + 18, y: hy },
-          ],
-          "ARMADURAS",
+      if (card.hook) {
+        const hx = cardX + 8;
+        barPath(
+          card.hook,
+          b.diameter,
+          hx - card.hookLeft / 10,
+          hookY - card.hookTop / 10,
         );
+        const labelX = hx + (card.hookRight - card.hookLeft) / 10 + 7;
         text(
-          hx + 23,
-          hy + 4,
+          labelX,
+          hookY + 4,
           `Gancho 90° em cada extremidade do suporte: ponta=${cm(b.hookTail)} cm`,
           2.05,
         );
         text(
-          hx + 23,
-          hy + 9,
+          labelX,
+          hookY + 9,
           `Projeção no suporte ${cm(b.anchorage.find((anchor) => anchor.end === "suporte")?.projection ?? 0)} cm · D=${cm(mandrelDiameter(b.diameter, p.materials.fyk))} cm.`,
           2.05,
         );
         text(
-          hx + 23,
-          hy + 14,
-          "Vista lateral do gancho (esquemática, fora do plano da alça).",
+          labelX,
+          hookY + 14,
+          "Vista lateral do gancho fora do plano da alça.",
           2.05,
         );
       }
@@ -1115,7 +1158,4 @@ export function steelSummaryDrawing(
     2.3,
   );
   return { width: 270, height: y + 31, entities, name: "Resumo geral do aço" };
-}
-export function segmentPoints(s: Segment) {
-  return samplePath({ segments: [s], length: 0, valid: true }, 20);
 }

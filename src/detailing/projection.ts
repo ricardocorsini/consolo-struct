@@ -78,7 +78,7 @@ export function elevationTieBars(_p: Piece, detail: RebarSource) {
   const items = projectElevation(detail).filter(
     ({ bar }) => bar.family === "tie",
   );
-  const result: { bar: Bar; path: BarPath }[] = [];
+  const result: { bar: Bar; path: BarPath; endCaps?: Point[] }[] = [];
   for (const bar of detail.bars.filter((b) => b.family === "tie")) {
     const own = items.filter((item) => item.bar === bar);
     if (detail.arrangement === "beam") {
@@ -106,6 +106,7 @@ export function elevationTieBars(_p: Piece, detail: RebarSource) {
           reversed(body.shape.path),
           ...(hook?.shape.kind === "path" ? [hook.shape.path] : []),
         ]),
+        endCaps: body.shape.endCaps,
       });
     }
   }

@@ -70,6 +70,37 @@ test("projeto e peça novos usam N1 com gancho e TS de mesma bitola", async ({
   ]);
 });
 
+test("prancha e SVG exportado mostram N1 com a bitola física", async ({
+  page,
+}, info) => {
+  const canvas = page.locator(".detail-canvas");
+  const bitola = page.getByLabel("Bitola do tirante");
+  for (const diameter of [10, 20]) {
+    await bitola.fill(String(diameter));
+    await bitola.press("Enter");
+    const stroke = canvas
+      .locator(`line[data-physical-diameter="${diameter}"]`)
+      .first();
+    const point = canvas
+      .locator(`circle[data-physical-diameter="${diameter}"]`)
+      .first();
+    await expect(stroke).toHaveAttribute("stroke-width", String(diameter / 10));
+    await expect(stroke).toHaveCSS("stroke-linecap", "butt");
+    await expect(point).toHaveAttribute("r", String(diameter / 20));
+    await expect(point).toHaveCSS("stroke", "none");
+  }
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Detalhes SVG", exact: true }).click();
+  const svg = await readFile((await (await download).path())!, "utf8");
+  expect(svg).toMatch(
+    /<line[^>]+stroke-width="2"[^>]+data-physical-diameter="20"/,
+  );
+  expect(svg).toMatch(
+    /<circle[^>]+r="1"[^>]+stroke="none"[^>]+data-physical-diameter="20"/,
+  );
+  await canvas.screenshot({ path: info.outputPath("prancha-escala-real.png") });
+});
+
 test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", async ({
   page,
 }) => {
@@ -84,7 +115,8 @@ test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", asyn
   expect(dxf).toContain("$INSUNITS\n70\n5");
   expect(dxf).toContain("C01");
   expect(dxf).not.toContain("C02");
-  expect(dxf).toContain("AcDbArc");
+  expect(dxf).toContain("AcDbPolyline");
+  expect(dxf).toContain("\n42\n");
   await page.getByLabel("Escopo dos detalhes").selectOption("all");
   await page.getByLabel("Peça do detalhamento").selectOption("double-tie");
   await expect(canvas).toContainText("C02");

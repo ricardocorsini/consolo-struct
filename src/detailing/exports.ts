@@ -1,11 +1,6 @@
 import type { Detail } from "./model";
-import {
-  colors,
-  type Drawing,
-  type Entity,
-  type Layer,
-  segmentPoints,
-} from "./drawing";
+import { colors, type Drawing, type Entity, type Layer } from "./drawing";
+import { at, type Point } from "./geometry";
 import { steelLabel } from "../domain/steel";
 import { gammaNDecision, gammaNPolicyLabels } from "../domain/gammaN";
 
@@ -23,24 +18,28 @@ export const escapeXml = (s: string) =>
   );
 const n = (v: number) => Number(v.toFixed(5));
 // The sheet uses cm. Retain sub-micrometre parity with the editor's coordinates.
-const svgCoordinate = (v: number) => Number(v.toFixed(9));
+const coordinate = (v: number) => Number(v.toFixed(9));
+const barWidth = (e: Entity) =>
+  e.type === "line" || e.type === "arc" ? e.thickness : undefined;
+const drawingWidth = (e: Entity) =>
+  barWidth(e) ?? (e.layer === "FORMAS" ? 0.25 : 0.13);
 export function entitySvg(e: Entity): string {
-  const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${e.layer === "ARMADURAS" ? 0.4 : e.layer === "FORMAS" ? 0.25 : 0.13}"`;
+  const thickness = barWidth(e);
+  const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${drawingWidth(e)}"${thickness === undefined ? "" : ` stroke-linecap="butt" stroke-linejoin="round" data-physical-diameter="${coordinate(thickness * 10)}"`}`;
   if (e.type === "line")
-    return `<line x1="${svgCoordinate(e.a.x)}" y1="${svgCoordinate(e.a.y)}" x2="${svgCoordinate(e.b.x)}" y2="${svgCoordinate(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
+    return `<line x1="${coordinate(e.a.x)}" y1="${coordinate(e.a.y)}" x2="${coordinate(e.b.x)}" y2="${coordinate(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   if (e.type === "arc") {
-    const a = {
-      x: e.center.x + e.radius * Math.cos(e.start),
-      y: e.center.y + e.radius * Math.sin(e.start),
-    };
-    const b = {
-      x: e.center.x + e.radius * Math.cos(e.start + e.sweep),
-      y: e.center.y + e.radius * Math.sin(e.start + e.sweep),
-    };
-    return `<path d="M${svgCoordinate(a.x)} ${svgCoordinate(a.y)} A${svgCoordinate(e.radius)} ${svgCoordinate(e.radius)} 0 ${Math.abs(e.sweep) > Math.PI ? 1 : 0} ${e.sweep > 0 ? 1 : 0} ${svgCoordinate(b.x)} ${svgCoordinate(b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
+    const a = at(e.center, e.radius, e.start);
+    const b = at(e.center, e.radius, e.start + e.sweep);
+    return `<path d="M${coordinate(a.x)} ${coordinate(a.y)} A${coordinate(e.radius)} ${coordinate(e.radius)} 0 ${Math.abs(e.sweep) > Math.PI ? 1 : 0} ${e.sweep > 0 ? 1 : 0} ${coordinate(b.x)} ${coordinate(b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   }
-  if (e.type === "circle")
-    return `<circle cx="${n(e.center.x)}" cy="${n(e.center.y)}" r="${n(e.radius)}" ${common}/>`;
+  if (e.type === "circle") {
+    const style =
+      e.layer === "ARMADURAS"
+        ? `class="detail-ARMADURAS" fill="${colors.ARMADURAS}" stroke="none" ${e.projectionCap ? 'data-projection-cap=""' : `data-physical-diameter="${coordinate(e.radius * 20)}"`}`
+        : common;
+    return `<circle cx="${coordinate(e.center.x)}" cy="${coordinate(e.center.y)}" r="${coordinate(e.radius)}" ${style}/>`;
+  }
   return `<text class="detail-${e.layer}" x="${n(e.at.x)}" y="${n(e.at.y)}" fill="${colors[e.layer]}" font-size="${e.size}" font-family="Arial,Helvetica,sans-serif"${e.align ? ` text-anchor="${e.align}"` : ""}${e.rotate ? ` transform="rotate(${e.rotate} ${n(e.at.x)} ${n(e.at.y)})"` : ""}>${escapeXml(e.text)}</text>`;
 }
 export const drawingSvg = (drawing: Drawing) =>
@@ -49,7 +48,7 @@ export const drawingSvg = (drawing: Drawing) =>
 export function drawingDxf(drawing: Drawing): string {
   const parts: (string | number)[] = [];
   const pair = (code: number, value: number | string) =>
-    parts.push(code, typeof value === "number" ? n(value) : value);
+    parts.push(code, typeof value === "number" ? coordinate(value) : value);
   const text = (value: string) =>
     value
       .replace(/[\r\n]+/g, " ")
@@ -130,18 +129,40 @@ export function drawingDxf(drawing: Drawing): string {
     pair(70, 0);
     pair(62, layerColors[layer]);
     pair(6, "CONTINUOUS");
-    pair(370, layer === "ARMADURAS" ? 35 : layer === "FORMAS" ? 25 : 13);
+    pair(370, layer === "ARMADURAS" ? 0 : layer === "FORMAS" ? 25 : 13);
   }
   pair(0, "ENDTAB");
   pair(0, "ENDSEC");
   pair(0, "SECTION");
   pair(2, "ENTITIES");
   for (const e of drawing.entities) {
-    const type = e.type.toUpperCase();
-    pair(0, type);
+    const thickness = barWidth(e);
+    if (
+      e.type === "line" &&
+      thickness !== undefined &&
+      Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) < 1e-10
+    )
+      continue;
+    pair(0, thickness === undefined ? e.type.toUpperCase() : "LWPOLYLINE");
     pair(100, "AcDbEntity");
     pair(8, e.layer);
     if ((e.type === "line" || e.type === "arc") && e.dash) pair(6, "TRACEJADO");
+    if (thickness !== undefined && (e.type === "line" || e.type === "arc")) {
+      pair(100, "AcDbPolyline");
+      pair(90, 2);
+      pair(70, 0);
+      pair(43, thickness);
+      const a = e.type === "line" ? e.a : at(e.center, e.radius, e.start);
+      const b =
+        e.type === "line" ? e.b : at(e.center, e.radius, e.start + e.sweep);
+      pair(10, a.x);
+      pair(20, -a.y);
+      // CAD uses Y up, so the signed turn is the opposite of the sheet's.
+      if (e.type === "arc") pair(42, Math.tan(-e.sweep / 4));
+      pair(10, b.x);
+      pair(20, -b.y);
+      continue;
+    }
     if (e.type === "line") {
       pair(100, "AcDbLine");
       pair(10, e.a.x);
@@ -218,6 +239,37 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
     subject: "Dimensões em centímetros; detalhes soltos; escala nominal 1:10",
     creator: "ConsoloStruct 0.7",
   });
+  doc.setLineCap("butt");
+  doc.setLineJoin("round");
+  // PDF has cubic paths. Small turns bound the error of a circular arc
+  // below the sheet's dimensional tolerance, including the cut circles.
+  const curve = (
+    center: Point,
+    radius: number,
+    start: number,
+    sweep: number,
+  ) => {
+    const count = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 8)));
+    const turn = sweep / count;
+    const tangent = (4 / 3) * radius * Math.tan(turn / 4);
+    let angle = start;
+    let a = at(center, radius, angle);
+    doc.moveTo(a.x, a.y);
+    for (let i = 1; i <= count; i++) {
+      const next = start + i * turn;
+      const b = at(center, radius, next);
+      doc.curveTo(
+        a.x - tangent * Math.sin(angle),
+        a.y + tangent * Math.cos(angle),
+        b.x + tangent * Math.sin(next),
+        b.y - tangent * Math.cos(next),
+        b.x,
+        b.y,
+      );
+      a = b;
+      angle = next;
+    }
+  };
   drawings.forEach((drawing, index) => {
     if (drawing.width > 4500 || drawing.height > 4500)
       throw new Error(
@@ -240,24 +292,22 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
       const hex = colors[e.layer];
       doc.setDrawColor(hex);
       doc.setTextColor(hex);
-      doc.setLineWidth(
-        e.layer === "ARMADURAS" ? 0.4 : e.layer === "FORMAS" ? 0.25 : 0.13,
-      );
+      doc.setLineWidth(drawingWidth(e));
       doc.setLineDashPattern(
         (e.type === "line" || e.type === "arc") && e.dash ? [2, 1] : [],
         0,
       );
       if (e.type === "line") doc.line(e.a.x, e.a.y, e.b.x, e.b.y);
-      if (e.type === "circle")
-        doc.circle(e.center.x, e.center.y, e.radius, "S");
+      if (e.type === "circle") {
+        if (e.layer === "ARMADURAS") {
+          doc.setFillColor(hex);
+          curve(e.center, e.radius, 0, 2 * Math.PI);
+          doc.close().fill();
+        } else doc.circle(e.center.x, e.center.y, e.radius, "S");
+      }
       if (e.type === "arc") {
-        const pts = segmentPoints(e);
-        // One stroked path keeps the dash phase through successive chords.
-        doc.lines(
-          pts.slice(1).map((p, i) => [p.x - pts[i].x, p.y - pts[i].y]),
-          pts[0].x,
-          pts[0].y,
-        );
+        curve(e.center, e.radius, e.start, e.sweep);
+        doc.stroke();
       }
       if (e.type === "text") {
         doc.setFont("helvetica", "normal");

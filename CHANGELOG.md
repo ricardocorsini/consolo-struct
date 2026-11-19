@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Representa bitolas, eixos e dobras das armaduras em escala geométrica nas vistas e na prancha (issue #69). Cortes usam círculos de raio físico. As barras chegam ao SVG e ao PDF com a largura da bitola e ao DXF em cm com polilinhas largas e arcos editáveis.
+
 - A elevação desenha o arco exato do gancho de N1 a partir da geometria usada na prancha e no 3D (issue #68). Os ganchos são aninhados com o passo do modo viga nas camadas ocupadas, com projeção e comprimento de corte por camada. A memória registra qual camada limita cada verificação de ancoragem.
 
 - Peças novas adotam N1 com barra transversal soldada de mesma bitola na ponta e gancho de 90° no suporte (issue #67). O gancho faz parte da forma de fabricação. A edição sincroniza as bitolas quando iguais, e a sugestão recalcula TS em cada candidato soldado. Os arquivos salvos preservam a ancoragem registrada.

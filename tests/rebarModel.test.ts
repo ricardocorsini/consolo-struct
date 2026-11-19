@@ -311,6 +311,7 @@ describe("Fonte única das armaduras (#63)", () => {
       (e) =>
         e.type === "circle" &&
         e.layer === "ARMADURAS" &&
+        !e.projectionCap &&
         close(e.radius, positive.diameter / 20),
     );
     expect(p1Circles).toHaveLength(aa.positives.length + bb.positives.length);
@@ -431,13 +432,14 @@ describe("Fonte única das armaduras (#63)", () => {
     const project = { ...exampleProject(), pieces: [p] };
     const drawing = pieceDrawing(project, buildDetail(p));
     const dashedArc = drawing.entities.find((e) => e.type === "arc" && e.dash);
-    expect(dashedArc).toBeDefined();
+    if (dashedArc?.type !== "arc" || dashedArc.thickness === undefined)
+      throw new Error("Arco tracejado sem bitola");
     expect(drawingSvg(drawing)).toMatch(/<path[^>]+stroke-dasharray="2 1"/);
     expect(drawingDxf(drawing)).toMatch(
-      /0\nARC\n100\nAcDbEntity\n8\nARMADURAS\n6\nTRACEJADO/,
+      /0\nLWPOLYLINE\n100\nAcDbEntity\n8\nARMADURAS\n6\nTRACEJADO[^]*?\n42\n/,
     );
     const pdf = Buffer.from(
-      await drawingPdf([{ ...drawing, entities: [dashedArc!] }]),
+      await drawingPdf([{ ...drawing, entities: [dashedArc] }]),
     ).toString("latin1");
     const streams = [...pdf.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)]
       .map((r) => {
@@ -449,8 +451,13 @@ describe("Fonte única das armaduras (#63)", () => {
       })
       .join("\n");
     expect(streams).toMatch(/\[5\.669\d* 2\.834\d*\] 0\.? d/);
+    const widths = [...streams.matchAll(/^([\d.]+) w$/gm)];
+    expect(Number(widths.at(-1)?.[1])).toBeCloseTo(
+      (dashedArc.thickness * 72) / 25.4,
+      8,
+    );
     expect(streams.match(/ m\n/g)).toHaveLength(1);
-    expect(streams.match(/ l\n/g)!.length).toBeGreaterThan(1);
+    expect(streams.match(/ c\n/g)!.length).toBeGreaterThan(1);
   });
 
   it.each(cases)(

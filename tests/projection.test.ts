@@ -246,7 +246,7 @@ describe("Gancho de N1 no suporte (#68)", () => {
       const ties = elevationTieBars(p, detail);
       const sampled = elevationTiePaths(p, detail);
       const sheet = pieceDrawing(exampleProject(), detail).entities.filter(
-        (e) => e.layer === "ARMADURAS",
+        (e) => e.layer === "ARMADURAS" && e.type !== "circle",
       );
       const radius =
         (mandrelDiameter(p.rebar.tieDiameter, p.materials.fyk) +

@@ -9,7 +9,12 @@ import { buildDetail } from "../src/detailing/model";
 import { combineDrawings, pieceDrawing } from "../src/detailing/drawing";
 import { elevationShapes } from "../src/detailing/projection";
 import { projectPlan } from "../src/detailing/rebarModel";
-import { drawingDxf, drawingSvg, steelCsv } from "../src/detailing/exports";
+import {
+  drawingDxf,
+  drawingSvg,
+  entitySvg,
+  steelCsv,
+} from "../src/detailing/exports";
 import { buildSceneModel } from "../src/visualization/model3d";
 import {
   decodeProject,
@@ -27,6 +32,109 @@ import {
   toSvg,
 } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
+
+describe("Armaduras em escala geométrica (#69)", () => {
+  it.each([10, 20])(
+    "a prancha usa Ø%s em elevação, planta e nos dois cortes",
+    (diameter) => {
+      const p = shortFixture();
+      p.design.frontAnchor = "welded";
+      p.design.weldedBarDiameter = p.rebar.tieDiameter = diameter;
+      const detail = buildDetail(p);
+      const sheet = pieceDrawing(exampleProject(), detail);
+      const x = p.geometry.columnWidth / 10 + 15;
+      const front = x + (p.geometry.length - p.geometry.cover) / 10;
+      const sectionX = x + p.geometry.length / 10 + 46;
+      const elevationY = 52;
+      const planY = elevationY + p.geometry.height / 10 + 55;
+      const depth = tieLayout(p).rows[0].y / 10;
+      const inset =
+        (p.geometry.cover + p.rebar.stirrupDiameter + diameter / 2) / 10;
+      const steel = sheet.entities.filter(
+        (entity) => entity.layer === "ARMADURAS",
+      );
+      for (const y of [elevationY + depth, planY + inset]) {
+        const line = steel.find(
+          (entity) =>
+            entity.type === "line" &&
+            Math.abs(entity.a.y - y) < 1e-8 &&
+            Math.abs(entity.b.y - y) < 1e-8 &&
+            Math.max(entity.a.x, entity.b.x) === front,
+        );
+        expect(line).toMatchObject({ thickness: diameter / 10 });
+        expect(entitySvg(line!)).toContain('stroke-linecap="butt"');
+        expect(entitySvg(line!)).toContain(`stroke-width="${diameter / 10}"`);
+        expect(front - p.geometry.length / 10 - x).toBeCloseTo(
+          -p.geometry.cover / 10,
+          8,
+        );
+      }
+      for (const y of [elevationY + depth, planY + depth]) {
+        const section = steel.find(
+          (entity) =>
+            entity.type === "circle" &&
+            Math.abs(entity.center.x - sectionX - inset) < 1e-8 &&
+            Math.abs(entity.center.y - y) < 1e-8,
+        );
+        expect(section).toMatchObject({ radius: diameter / 20 });
+        expect(entitySvg(section!)).toContain('stroke="none"');
+      }
+      const n3Cap = steel.find(
+        (e) =>
+          e.type === "circle" &&
+          e.projectionCap &&
+          Math.abs(e.center.x - x - stirrupLayout(p).positions[0] / 10) <
+            1e-8 &&
+          Math.abs(e.center.y - elevationY - stirrupLayout(p).offset / 10) <
+            1e-8,
+      );
+      if (n3Cap?.type !== "circle")
+        throw new Error("Top of N3 projection missing");
+      expect(n3Cap.center.y - n3Cap.radius - elevationY).toBeCloseTo(
+        p.geometry.cover / 10,
+        8,
+      );
+    },
+  );
+
+  it("o arco largo do DXF conserva o eixo, a bitola e o raio em cm", () => {
+    const project = exampleProject();
+    const drawing = pieceDrawing(project, buildDetail(project.pieces[0]));
+    const arc = drawing.entities.find(
+      (e) => e.type === "arc" && e.thickness === 2,
+    );
+    if (arc?.type !== "arc") throw new Error("Dobra de N1 Ø20 ausente");
+    const dxf = drawingDxf({ ...drawing, entities: [arc] });
+    expect(dxf).toContain("$INSUNITS\n70\n5\n");
+    const tokens = dxf
+      .split("0\nLWPOLYLINE\n")[1]
+      .split("0\nENDSEC")[0]
+      .split("\n");
+    const values = (code: number) =>
+      tokens.flatMap((field, i) =>
+        i % 2 === 0 && field === String(code) ? [Number(tokens[i + 1])] : [],
+      );
+    const [ax, bx] = values(10);
+    const [ay, by] = values(20);
+    const [bulge] = values(42);
+    const sweep = 4 * Math.atan(bulge);
+    expect(values(43)).toEqual([2]);
+    expect(sweep).toBeCloseTo(-arc.sweep, 7);
+    expect(
+      Math.hypot(bx - ax, by - ay) / (2 * Math.sin(Math.abs(sweep) / 2)),
+    ).toBeCloseTo(arc.radius, 4);
+    expect(ax).toBeCloseTo(arc.center.x + arc.radius * Math.cos(arc.start), 4);
+    expect(-ay).toBeCloseTo(arc.center.y + arc.radius * Math.sin(arc.start), 4);
+    expect(bx).toBeCloseTo(
+      arc.center.x + arc.radius * Math.cos(arc.start + arc.sweep),
+      4,
+    );
+    expect(-by).toBeCloseTo(
+      arc.center.y + arc.radius * Math.sin(arc.start + arc.sweep),
+      4,
+    );
+  });
+});
 
 describe("N1 reto com gancho e barra transversal soldada (#67)", () => {
   it("reproduz os 701,37 mm de desenvolvimento com um único BarPath", () => {
@@ -348,7 +456,8 @@ describe("Interoperabilidade e arquivos", () => {
     const drawing = pieceDrawing(project, buildDetail(p));
     const dxf = drawingDxf(drawing);
     expect(dxf).toContain("$INSUNITS\n70\n5\n");
-    expect(dxf).toContain("\nARC\n");
+    expect(dxf).toContain("\nLWPOLYLINE\n");
+    expect(dxf).toContain("\n42\n");
     expect(dxf).toContain("AcDbText");
     expect(dxf).toContain("C unit cm");
     expect(dxf).toContain("FORMAS");

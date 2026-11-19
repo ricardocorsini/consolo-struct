@@ -226,6 +226,27 @@ describe("Armado como viga — tirante (negativa) e positiva", () => {
       n1.every((s) => s.points.length === samplePath(tie.path, 24).length),
     ).toBe(true);
     expect(positive).toHaveLength(p.detailing.beamBottomCount);
+    for (const [family, axis] of [
+      ["tie", n1[0]],
+      ["positive", positive[0]],
+    ] as const) {
+      const bar = d.bars.find((item) => item.family === family)!;
+      let offset = 0;
+      for (const segment of bar.instances[0].parts[0].path.segments) {
+        if (segment.type === "line") {
+          offset++;
+          continue;
+        }
+        const radius = (bar.mandrel + bar.diameter) / 2;
+        const samples = axis.points.slice(offset, offset + 25);
+        expect(samples).toHaveLength(25);
+        for (const [x, , z] of samples)
+          expect(
+            Math.hypot(x - segment.center.x, -z - segment.center.y),
+          ).toBeCloseTo(radius, 8);
+        offset += 24;
+      }
+    }
     expect(scene.steel.filter((s) => s.id === "N4")).toHaveLength(
       p.rebar.stirrupBranches,
     );
