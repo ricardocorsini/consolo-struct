@@ -8,18 +8,25 @@ import {
   pieceSchema,
 } from "../src/domain/model";
 
-function render(width: number, layers = 1, section = true) {
+function render(
+  width: number,
+  layers = 1,
+  section = true,
+  rebar = true,
+  diameter = 20,
+) {
   const piece = exampleProject().pieces[0];
   piece.geometry.width = width;
   piece.design.tieLayers = layers;
   piece.rebar.tieCount = layers === 1 ? 4 : 7;
+  piece.rebar.tieDiameter = piece.design.weldedBarDiameter = diameter;
   expect(pieceSchema.safeParse(piece).success).toBe(true);
   expect(geometryErrors(piece)).toEqual([]);
   return renderToStaticMarkup(
     createElement(Drawing, {
       piece,
       section,
-      rebar: true,
+      rebar,
       dimensions: true,
       grid: false,
       zoom: 1,
@@ -56,13 +63,38 @@ describe("enquadramento da seção A–A com d’", () => {
     expect(Number(concrete![2])).toBeCloseTo(300 * scale);
   });
 
-  it("não altera a elevação quando somente a largura muda", () => {
-    // N4 now records its actual transverse position, which changes with width.
-    // Compare the complete visible geometry, excluding only that metadata.
-    const geometry = (svg: string) =>
-      svg.replace(/ data-transverse-position="[^"]*"/g, "");
-    expect(geometry(render(1000, 1, false))).toBe(
-      geometry(render(300, 1, false)),
-    );
+  it("preserva o enquadramento da elevação do concreto quando a largura muda", () => {
+    expect(render(1000, 1, false, false)).toBe(render(300, 1, false, false));
   });
+
+  it.each([true, false])(
+    "com seção=%s, dobrar a bitola dobra o contorno físico de N1",
+    (section) => {
+      const width = 6000;
+      const measures = [10, 20].map((diameter) => {
+        const svg = render(width, 1, section, true, diameter);
+        const shape = svg.match(
+          new RegExp(
+            `<${section ? "circle" : "path"} [^>]*data-physical-diameter="${diameter}"[^>]*>`,
+          ),
+        )![0];
+        const attribute = section ? "r" : "stroke-width";
+        const measure = Number(
+          shape.match(new RegExp(` ${attribute}="([^"]+)"`))![1],
+        );
+        const scale = Math.min(
+          480 / 550,
+          340 / 480,
+          section ? 480 / width : Infinity,
+        );
+        expect(measure).toBeCloseTo(
+          (section ? diameter / 2 : diameter) * scale,
+          10,
+        );
+        if (section) expect(shape).toContain('stroke="none"');
+        return measure;
+      });
+      expect(measures[1]).toBeCloseTo(2 * measures[0], 10);
+    },
+  );
 });

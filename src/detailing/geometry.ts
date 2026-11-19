@@ -25,6 +25,43 @@ export function pathLength(segments: Segment[]) {
     0,
   );
 }
+
+/** Developed length on the tip side of a transverse plane. */
+export function pathLengthAfterX(path: BarPath, x: number): number {
+  return path.segments.reduce((length, s) => {
+    if (s.type === "line") {
+      const first = Math.min(s.a.x, s.b.x);
+      const last = Math.max(s.a.x, s.b.x);
+      if (x <= first) return length + distance(s.a, s.b);
+      if (x >= last) return length;
+      return length + (distance(s.a, s.b) * (last - x)) / (last - first);
+    }
+    const cosine = (x - s.center.x) / s.radius;
+    const sweep = Math.abs(s.sweep);
+    if (cosine <= -1) return length + s.radius * sweep;
+    if (cosine >= 1) return length;
+    const angle = Math.acos(cosine);
+    const turn = 2 * Math.PI;
+    const crossings = [angle, -angle]
+      .map((a) => (((Math.sign(s.sweep) * (a - s.start)) % turn) + turn) % turn)
+      .filter((a) => a > 0 && a < sweep)
+      .sort((a, b) => a - b);
+    const ends = [...crossings, sweep];
+    let start = 0;
+    for (const end of ends) {
+      const middle = s.start + Math.sign(s.sweep) * ((start + end) / 2);
+      if (Math.cos(middle) >= cosine) length += s.radius * (end - start);
+      start = end;
+    }
+    return length;
+  }, 0);
+}
+
+export function stirrupClosure(diameter: number, mandrel: number) {
+  const radius = (mandrel + diameter) / 2;
+  const tail = Math.max(5 * diameter, 50);
+  return { radius, tail, minimum: 2 * radius + tail / Math.sqrt(2) };
+}
 export function roundedPath(vertices: Point[], radius: number): BarPath {
   const corners = vertices.map((b, i) => {
     if (i === 0 || i === vertices.length - 1) return null;
@@ -83,8 +120,7 @@ export function closedStirrup(
   diameter: number,
   mandrel: number,
 ): BarPath {
-  const r = (mandrel + diameter) / 2,
-    tail = Math.max(5 * diameter, 50);
+  const { radius: r, tail, minimum } = stirrupClosure(diameter, mandrel);
   const c = { x: width - r, y: r };
   const s = at(c, r, Math.PI / 4);
   const e = at(c, r, (-3 * Math.PI) / 4);
@@ -115,12 +151,20 @@ export function closedStirrup(
   return {
     segments,
     length: pathLength(segments),
-    valid:
-      outline.valid &&
-      width >= 2 * r + tail / Math.sqrt(2) &&
-      height >= 2 * r + tail / Math.sqrt(2),
+    valid: outline.valid && width >= minimum && height >= minimum,
   };
 }
+/** Perimeter used by the conventional transverse section of N2/N2I. The
+ * full fabrication projection includes both overlapping closure ends. */
+export function closedStirrupPerimeter(path: BarPath): BarPath {
+  const closing = path.segments.at(-2)!;
+  const segments = [
+    ...path.segments.slice(2, -2),
+    closing.type === "arc" ? { ...closing, sweep: -Math.PI / 2 } : closing,
+  ];
+  return { ...path, segments, length: pathLength(segments) };
+}
+
 /** Internal U for N3: two vertical effective legs and two inward 135° hooks.
  * Explicit arcs keep the full straight tails instead of consuming them in fillets. */
 export function openStirrup(
@@ -184,6 +228,17 @@ export function samplePath(path: BarPath, divisions = 12): Point[] {
           );
     return index ? pts.slice(1) : pts;
   });
+}
+/** Maximum sagitta between an arc and the chords returned by samplePath. */
+export function pathSamplingError(path: BarPath, divisions: number): number {
+  return Math.max(
+    0,
+    ...path.segments.map((segment) =>
+      segment.type === "arc"
+        ? segment.radius * (1 - Math.cos(segment.sweep / (2 * divisions)))
+        : 0,
+    ),
+  );
 }
 export function mandrelDiameter(
   diameter: number,

@@ -1,23 +1,22 @@
-import {
-  constructiveGeometry,
-  transverseGeometry,
-  translatePath,
-  sectionDepths,
-  projectedConstructiveSection,
-} from "./transverse";
 import type { Project } from "../domain/model";
 import { number } from "../domain/model";
+import { dimensionLabel, elevationDimensions } from "../domain/dimensions";
+import { at, type BarPath, type Point, type Segment } from "./geometry";
+import type { ViewShape } from "./rebarPlacement";
 import {
-  mandrelDiameter,
-  samplePath,
-  type BarPath,
-  type Point,
-  type Segment,
-} from "./geometry";
+  AnnotationLayout,
+  drawingBounds,
+  textPitch,
+  textWidth,
+  translateEntity,
+  wrapText,
+} from "./layout";
 import { type Bar, type Detail } from "./model";
-import { pinCenters } from "./model";
-import { beamBarPositions } from "./beam";
-import { reactionGeometry } from "../domain/theory";
+import { reactionGeometry, stirrupLayout } from "../domain/theory";
+import { elevationTieBars, sectionBars } from "./projection";
+import { projectElevation, projectPlan, type ViewItem } from "./rebarModel";
+import { countText, declaredCounts, placedCounts } from "./consistency";
+import { pathExtent } from "./rebarPlacement";
 import { bottomDepth, concreteProfile } from "../domain/profile";
 import { coefficientText, materialSafety } from "../domain/materialSafety";
 import {
@@ -35,16 +34,20 @@ export type Layer =
   | "EIXOS"
   | "ALERTAS";
 export type Entity =
-  | { type: "line"; a: Point; b: Point; layer: Layer; dash?: boolean }
+  | (Segment & {
+      layer: Layer;
+      dash?: boolean;
+      thickness?: number;
+      schematic?: string;
+      annotation?: "dimension" | "extension" | "leader";
+    })
   | {
-      type: "arc";
+      type: "circle";
       center: Point;
       radius: number;
-      start: number;
-      sweep: number;
       layer: Layer;
+      projectionCap?: boolean;
     }
-  | { type: "circle"; center: Point; radius: number; layer: Layer }
   | {
       type: "text";
       at: Point;
@@ -61,10 +64,9 @@ export type Drawing = {
   name: string;
   detail?: Detail;
 };
+export const maxPdfPageSide = 4500;
 export const cm = (mm: number, digits = 1) => number(mm / 10, digits);
 export const grade = steelLabel;
-export const barLabel = (b: Bar) =>
-  `${b.quantity} ${b.mark} Ø${number(b.diameter, 1)} C=${cm(b.cutLength)}`;
 export const colors: Record<Layer, string> = {
   FORMAS: "#303843",
   ARMADURAS: "#174c9b",
@@ -82,7 +84,13 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     r = p.rebar,
     q = p.design,
     s = p.detailing;
-  const entities: Entity[] = [];
+  let entities: Entity[] = [];
+  // Every count printed on the sheet is the detailed one (#64).
+  const declared = declaredCounts(d),
+    placed = placedCounts(d);
+  const qty = (family: keyof typeof placed) =>
+    countText(placed[family], declared[family]);
+  const n3Branches = placed.stirrupInner ? 4 : 2;
   const text = (
     x: number,
     y: number,
@@ -108,6 +116,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     y2: number,
     layer: Layer = "FORMAS",
     dash = false,
+    thickness?: number,
   ) =>
     entities.push({
       type: "line",
@@ -115,6 +124,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       b: { x: x2, y: y2 },
       layer,
       dash,
+      ...(thickness !== undefined ? { thickness } : {}),
     });
   const poly = (
     points: Point[],
@@ -160,144 +170,156 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       true,
       dash,
     );
-  const barPath = (path: BarPath, x: number, y: number, scale = 0.1) => {
-    for (const seg of path.segments) {
-      if (seg.type === "line")
-        line(
-          x + seg.a.x * scale,
-          y + seg.a.y * scale,
-          x + seg.b.x * scale,
-          y + seg.b.y * scale,
-          "ARMADURAS",
-        );
-      else
-        entities.push({
-          ...seg,
-          center: { x: x + seg.center.x * scale, y: y + seg.center.y * scale },
-          radius: seg.radius * scale,
-          layer: "ARMADURAS",
-        });
-    }
-  };
-  const dim = (
+  const barCircle = (
     x: number,
     y: number,
-    x2: number,
-    y2: number,
-    offset: number,
-    label: string,
-  ) => {
-    const vertical = Math.abs(x2 - x) < 1e-6;
-    if (!vertical) {
-      line(
-        x,
-        y + Math.sign(offset),
-        x,
-        y + offset + Math.sign(offset) * 2,
-        "COTAS",
-      );
-      line(
-        x2,
-        y2 + Math.sign(offset),
-        x2,
-        y + offset + Math.sign(offset) * 2,
-        "COTAS",
-      );
-      line(x, y + offset, x2, y + offset, "COTAS");
-      for (const xx of [x, x2])
-        line(xx - 1.2, y + offset + 1.2, xx + 1.2, y + offset - 1.2, "COTAS");
-      text((x + x2) / 2, y + offset - 1.5, label, 2.2, "COTAS", "middle");
-    } else {
-      line(
-        x + Math.sign(offset),
-        y,
-        x + offset + Math.sign(offset) * 2,
-        y,
-        "COTAS",
-      );
-      line(
-        x2 + Math.sign(offset),
-        y2,
-        x + offset + Math.sign(offset) * 2,
-        y2,
-        "COTAS",
-      );
-      line(x + offset, y, x + offset, y2, "COTAS");
-      for (const yy of [y, y2])
-        line(x + offset - 1.2, yy + 1.2, x + offset + 1.2, yy - 1.2, "COTAS");
-      text(x + offset - 1.5, (y + y2) / 2, label, 2.2, "COTAS", "middle", -90);
-    }
-  };
-  const leader = (
+    diameter: number,
+    projectionCap = false,
+  ) =>
+    entities.push({
+      type: "circle",
+      center: { x, y },
+      radius: diameter / 20,
+      layer: "ARMADURAS",
+      ...(projectionCap ? { projectionCap } : {}),
+    });
+  const barPath = (
+    path: BarPath,
+    diameter: number,
     x: number,
     y: number,
-    tx: number,
-    ty: number,
-    label: string,
+    {
+      dash = false,
+      endCaps = [],
+      scale = 1,
+      schematic,
+    }: {
+      dash?: boolean;
+      endCaps?: Point[];
+      scale?: number;
+      schematic?: string;
+    } = {},
   ) => {
-    line(x, y, tx - 3, ty - 1, "COTAS");
-    line(tx - 3, ty - 1, tx + 2, ty - 1, "COTAS");
-    text(tx + 3, ty, label, 2.1);
-  };
-  const wrap = (value: string, width = 100) => {
-    const result: string[] = [];
-    for (const paragraph of value.split(/\r?\n/)) {
-      let chunk = "";
-      for (const word of paragraph.split(/\s+/)) {
-        if (chunk.length + word.length + 1 > width) {
-          result.push(chunk);
-          chunk = "";
-        }
-        chunk += `${chunk ? " " : ""}${word}`;
-      }
-      if (chunk) result.push(chunk);
+    const move = (point: Point) => ({
+      x: x + (point.x * scale) / 10,
+      y: y + (point.y * scale) / 10,
+    });
+    const width = (diameter * scale) / 10;
+    const style = {
+      layer: "ARMADURAS" as const,
+      thickness: schematic ? Math.min(0.55, Math.max(0.22, width)) : width,
+      ...(schematic ? { schematic } : {}),
+      ...(dash ? { dash } : {}),
+    };
+    for (const seg of path.segments)
+      entities.push(
+        seg.type === "line"
+          ? { ...seg, a: move(seg.a), b: move(seg.b), ...style }
+          : {
+              ...seg,
+              center: move(seg.center),
+              radius: (seg.radius * scale) / 10,
+              ...style,
+            },
+      );
+    for (const cap of endCaps) {
+      const center = move(cap);
+      barCircle(center.x, center.y, diameter * scale, true);
     }
-    return result;
+  };
+  type Row = [value: string, size?: number, layer?: Layer];
+  const textRows = (x: number, top: number, rows: Row[]) => {
+    for (const [value, size = 2.1, layer = "TEXTOS"] of rows) {
+      text(x, top + size * 1.12 + 0.25, value, size, layer);
+      top += textPitch(size) + 0.7;
+    }
+    return top;
+  };
+  const viewBlock = (
+    layout: AnnotationLayout,
+    captionX: number,
+    above: Row[],
+    below: Row[] = [],
+  ) => {
+    layout.finish();
+    const geometry = drawingBounds(entities);
+    const captionHeight = above.reduce(
+      (h, [, size = 2.1]) => h + textPitch(size) + 0.7,
+      0,
+    );
+    textRows(captionX, geometry.top - captionHeight - 3, above);
+    textRows(captionX, geometry.bottom + 3, below);
+    const block = { entities, bounds: drawingBounds(entities) };
+    entities = [];
+    return block;
+  };
+  const shapeAnchor = (shape: ViewShape): Point | undefined => {
+    if (shape.kind === "point") return shape.center;
+    const segment =
+      shape.path.segments.find((part) => part.type === "line") ??
+      shape.path.segments[0];
+    if (!segment) return;
+    if (segment.type === "arc")
+      return at(
+        segment.center,
+        segment.radius,
+        segment.start + segment.sweep / 2,
+      );
+    return {
+      x: (segment.a.x + segment.b.x) / 2,
+      y: (segment.a.y + segment.b.y) / 2,
+    };
   };
   const P = g.columnWidth / 10,
     L = g.length / 10,
     H = g.height / 10,
     B = g.width / 10;
-  const x = P + 15,
-    y = 52,
-    sectionX = x + L + 46;
-  const viewRight = sectionX + B + 50;
-  const tableX = viewRight + 10,
-    tableW = 205;
-  const width = Math.max(540, tableX + tableW + 12);
-  text(10, 8, `${p.name}  |  DETALHAMENTO DO CONSOLO`, 3.5);
-  text(
-    width - 10,
-    8,
-    `${s.revision || "R00"}  ·  ${p.quantity} PEÇA(S)`,
-    2.8,
-    "TEXTOS",
-    "end",
-  );
-  text(10, 14, `${project.name} · ${p.description}`.slice(0, 160), 2.5);
-  text(width - 10, 14, "ConsoloStruct · OPENSTRUCT", 2.3, "TEXTOS", "end");
-  text(
-    10,
-    20,
-    `fck ${number(p.materials.fck, 0)} MPa · Tirante ${grade(p.materials.fyk)} · Transversal ${grade(p.materials.fykTransverse)} · Cobrimento ${cm(g.cover)} cm · Cotas em cm / bitolas em mm`,
-    2.3,
-  );
-  text(
-    10,
-    26,
-    `Tirante: ${r.tieCount} ramos em ${q.tieLayers} camada(s)${q.tieLayers === 2 ? " · TIRANTE DUPLO" : ""} · V${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.vertical / 1000, 1)} kN · H${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.horizontal / 1000, 1)} kN · a_calc=${cm(reactionGeometry(p).a)} cm`,
-    2.3,
-  );
-  text(
-    10,
-    32,
-    d.issues.some((i) => i.severity === "error")
-      ? "PENDÊNCIAS IMPEDITIVAS - CORRIGIR ANTES DA EXECUÇÃO"
-      : "PARA CONFERÊNCIA DO RESPONSÁVEL TÉCNICO",
-    2.5,
-    "ALERTAS",
-  );
-  line(10, 36, width - 10, 36, "COTAS");
+  const bearingHeight = Math.max(q.bearingHeight / 10, 1);
+  // Each view starts in local sheet coordinates. Placement only translates it.
+  const x = P,
+    y = 0,
+    sectionX = 0,
+    planY = 0;
+  const schematicWidth = 150;
+  const steelHeader = [
+    "Pos.",
+    "Aço",
+    "Ø mm",
+    "Q/pç",
+    "Q total",
+    "C unit cm",
+    "C total cm",
+    "kg total",
+    "Desenho esquemático da armadura",
+  ];
+  const schedules: TableCell[][][] = [[steelHeader]];
+  // Reserve space below each schedule for totals and detailing notes.
+  const scheduleLimit = maxPdfPageSide - 300;
+  const headerHeight = tableRowHeight(steelHeader);
+  let scheduleHeight = headerHeight;
+  for (const bar of d.bars) {
+    const row = [
+      bar.mark,
+      String(bar.grade / 10),
+      number(bar.diameter, 1),
+      String(bar.quantity),
+      String(bar.totalQuantity),
+      cm(bar.cutLength),
+      cm(bar.totalLength),
+      number(bar.totalMass, 2),
+      schematicCell(bar),
+    ];
+    const height = tableRowHeight(row);
+    if (scheduleHeight + height > scheduleLimit) {
+      schedules.push([steelHeader]);
+      scheduleHeight = headerHeight;
+    }
+    schedules.at(-1)!.push(row);
+    scheduleHeight += height;
+  }
+  const detailedTieLayers = d.tieRows.filter(
+    (row) => row.detailedCount > 0,
+  ).length;
   // Elevation. The column is deliberately shown as a local fragment, with break marks.
   poly([
     { x: x - P, y: y - 4 },
@@ -322,9 +344,9 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     ]);
   rect(
     x + (g.loadOffset - q.bearingLength / 2) / 10,
-    y - Math.max(q.bearingHeight / 10, 1),
+    y - bearingHeight,
     q.bearingLength / 10,
-    Math.max(q.bearingHeight / 10, 1),
+    bearingHeight,
   );
   const slope = (g.height - g.tipHeight) / g.length;
   // Inclination of each inclined stretch of the bottom face, in degrees.
@@ -339,86 +361,52 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     .map((angle) => `${number(angle, 1)}°`)
     .join(" / ");
   const beam = d.arrangement === "beam";
-  for (const b of d.bars) {
-    // Beam arrangement: bar paths are already in elevation coordinates (x, depth).
-    if (beam && (b.family === "tie" || b.family === "positive"))
-      barPath(b.path, x, y);
-    else if (b.family === "tie")
-      for (const loc of b.locations) {
-        const back =
-          q.supportAnchor === "hook"
-            ? s.supportHookProjection
-            : q.supportAnchorLength;
-        const hookR =
-          (mandrelDiameter(r.tieDiameter, p.materials.fyk) + r.tieDiameter) /
-          20;
-        line(
-          x - back / 10 + (q.supportAnchor === "hook" ? hookR : 0),
-          y + loc.z / 10,
-          x + (g.length - g.cover - r.tieDiameter / 2) / 10,
-          y + loc.z / 10,
-          "ARMADURAS",
+  // Every view below is a projection or a cut of the same placed bars.
+  const drawShapes = (
+    items: ViewItem[],
+    ox: number,
+    oy: number,
+    dashed: (bar: Bar) => boolean = () => false,
+  ) => {
+    const drawn = new Set<string>();
+    for (const { bar, shape } of items) {
+      // Coincident projections of bars of one position are drawn once.
+      const key = `${bar.mark}|${JSON.stringify(shape)}`;
+      if (drawn.has(key)) continue;
+      drawn.add(key);
+      if (shape.kind === "point")
+        barCircle(
+          ox + shape.center.x / 10,
+          oy + shape.center.y / 10,
+          bar.diameter,
         );
-        if (q.supportAnchor === "hook") {
-          const rr = hookR;
-          entities.push({
-            type: "arc",
-            center: { x: x - back / 10 + rr, y: y + loc.z / 10 + rr },
-            radius: rr,
-            start: -Math.PI / 2,
-            sweep: -Math.PI / 2,
-            layer: "ARMADURAS",
-          });
-          line(
-            x - back / 10,
-            y + loc.z / 10 + rr,
-            x - back / 10,
-            y + loc.z / 10 + rr + s.supportHookTail / 10,
-            "ARMADURAS",
-          );
-        }
-      }
-    if (b.family === "stitch" || b.family === "lower")
-      for (const loc of b.locations)
-        line(
-          x - s.stitchEmbedment / 10,
-          y + loc.z / 10,
-          x + loc.x / 10,
-          y + loc.z / 10,
-          "ARMADURAS",
-        );
-    if (b.family === "stirrup" || b.family === "stirrupInner")
-      for (const loc of b.locations)
-        line(
-          x + loc.x / 10,
-          y + loc.z / 10,
-          x + loc.x / 10,
-          y + (loc.z + b.height) / 10,
-          "ARMADURAS",
-        );
-    if (b.family === "constructive") barPath(b.path, x, y);
-    if (b.family === "pin") {
-      line(
-        x + g.loadOffset / 10,
-        y - s.pinProjection / 10,
-        x + g.loadOffset / 10,
-        y + s.pinEmbedment / 10,
-        "ARMADURAS",
-      );
-      leader(
-        x + g.loadOffset / 10,
-        y - s.pinProjection / 10,
-        x + L + 4,
-        y - 10,
-        `${b.quantity} ${b.mark} (pinos)`,
-      );
+      else
+        barPath(shape.path, bar.diameter, ox, oy, {
+          dash: dashed(bar),
+          endCaps: shape.endCaps,
+        });
     }
-  }
-  dim(x - P, y, x, y, -10, `P=${cm(g.columnWidth)}`);
-  dim(x, y, x + L, y, -10, `L=${cm(g.length)}`);
-  dim(x, y, x + g.loadOffset / 10, y, -19, `a=${cm(g.loadOffset)}`);
-  dim(x + L, y, x + L, y + H, 20, `h=${cm(g.height)}`);
-  dim(x + L, y, x + L, y + g.tipHeight / 10, 10, `h2=${cm(g.tipHeight)}`);
+  };
+  const projectedTies = elevationTieBars(p, d);
+  for (const { path, bar, endCaps } of projectedTies)
+    barPath(path, bar.diameter, x, y, { endCaps });
+  const elevation = projectElevation(d);
+  drawShapes(
+    elevation.filter(({ bar }) => bar.family !== "tie"),
+    x,
+    y,
+  );
+  const elevationLayout = new AnnotationLayout(entities);
+  for (const { from, to, placement, id, value } of elevationDimensions(g))
+    elevationLayout.dimension(
+      { x: x + from.x / 10, y: y + from.depth / 10 },
+      { x: x + to.x / 10, y: y + to.depth / 10 },
+      dimensionLabel(id, value),
+      placement === "inner" || placement === "outer" ? "right" : placement,
+    );
+  const pin = elevation.find(({ bar }) => bar.family === "pin");
+  const pinTop =
+    pin?.shape.kind === "path" ? pin.shape.path.segments[0] : undefined;
   const tieBars = d.bars.filter((b) => b.family === "tie");
   const stitchBars = d.bars.filter(
     (b) => b.family === "stitch" || b.family === "lower",
@@ -427,7 +415,6 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     (b) => b.family === "stirrup" || b.family === "stirrupInner",
   );
   const constructiveBars = d.bars.filter((b) => b.family === "constructive");
-  const constructive = constructiveGeometry(p);
   const positiveBars = d.bars.filter((b) => b.family === "positive");
   const marks = (bs: Bar[]) =>
     bs.length
@@ -435,149 +422,112 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         ? bs[0].mark
         : `${bs[0].mark} a ${bs.at(-1)!.mark}`
       : "--";
-  leader(
-    x + L * 0.55,
-    y + d.tieRows[0].y / 10,
-    x + L + 5,
-    y + H + 15,
-    `Tirante ${marks(tieBars)}`,
-  );
-  text(x - P, y + H + 24, "ELEVAÇÃO LATERAL - ARMADURAS", 2.8);
-  text(
-    x - P,
-    y + H + 29,
-    `Costura ${marks(stitchBars)} · N3: ${r.stirrupBranches ?? 2} ramos/posição (${marks(verticalBars)}) · Construtiva ${marks(constructiveBars)}${positiveBars.length ? ` · Positiva ${marks(positiveBars)}` : ""}`,
-    2.2,
-  );
+  if (pin && pinTop?.type === "line") {
+    const top = pinTop.a.y < pinTop.b.y ? pinTop.a : pinTop.b;
+    elevationLayout.leader(
+      { x: x + top.x / 10, y: y + top.y / 10 },
+      `${pin.bar.quantity} ${pin.bar.mark} (pinos)`,
+    );
+  }
+  const projected = projectedTies[0];
+  const tieAnchor =
+    projected && shapeAnchor({ kind: "path", path: projected.path });
+  if (tieAnchor)
+    elevationLayout.leader(
+      { x: x + tieAnchor.x / 10, y: y + tieAnchor.y / 10 },
+      `Tirante ${marks(tieBars)}`,
+    );
+  const elevationRows: Row[] = [
+    ["ELEVAÇÃO LATERAL - ARMADURAS", 2.8],
+    [
+      `Costura ${marks(stitchBars)} · N3: ${countText(n3Branches, r.stirrupBranches ?? 2)} ramos/posição (${marks(verticalBars)}) · Construtiva ${marks(constructiveBars)}${positiveBars.length ? ` · Positiva ${marks(positiveBars)}` : ""}`,
+      2.2,
+    ],
+  ];
   if (beam)
-    text(
-      x - P,
-      y + H + 34,
+    elevationRows.push([
       "ARMADO COMO VIGA: tirante e positiva com dobras nas duas extremidades.",
       2.2,
-    );
-  // Section at the root, common to both concrete geometry and actual tie layer depths.
-  const sectionBar = verticalBars[0];
-  const cutDepth = sectionBar?.locations[0].x ?? 0;
-  const sectionH = cut
-    ? bottomDepth(concrete, cutDepth) / 10
-    : H - (slope * cutDepth) / 10;
-  text(sectionX, y - 8, `CORTE A-A / x=${cm(cutDepth)} cm`, 2.8);
+    ]);
+  const elevationBlock = viewBlock(elevationLayout, x - P, [], elevationRows);
+  // The first scheduled outer stirrup defines the cut, even if its shape is invalid.
+  const cutDepth = stirrupLayout(p).positions[0];
+  const sectionDepth = bottomDepth(concrete, cutDepth);
+  const sectionH = sectionDepth / 10;
+  // Both transverse cuts draw exactly the bars that meet their plane.
+  const drawSection = (
+    section: ReturnType<typeof sectionBars>,
+    ox: number,
+    oy: number,
+  ) => {
+    for (const bar of section.stirrups) barPath(bar.path, bar.diameter, ox, oy);
+    for (const bar of [
+      ...section.constructive,
+      ...section.ties,
+      ...section.positives,
+    ])
+      barCircle(ox + bar.v / 10, oy + bar.depth / 10, bar.diameter);
+    for (const bar of section.stitches)
+      for (const v of bar.positions)
+        barCircle(ox + v / 10, oy + bar.depth / 10, bar.diameter);
+    for (const bar of section.lines)
+      line(
+        ox + bar.a.x / 10,
+        oy + bar.a.y / 10,
+        ox + bar.b.x / 10,
+        oy + bar.b.y / 10,
+        "ARMADURAS",
+        false,
+        bar.diameter / 10,
+      );
+  };
+  // A–A at the first stirrup: the juxtaposed N3/N3G pair is projected and
+  // each N4 is cut in the plane of the stirrup that carries it.
+  const sectionRebar = sectionBars(p, d, cutDepth, {
+    pairWindow: r.stirrupDiameter,
+  });
   rect(sectionX, y, B, sectionH);
-  const sectionPair = transverseGeometry(p, cutDepth);
-  if (sectionPair.branches === 4)
-    text(
-      sectionX,
-      y - 4,
-      `N3G projetado de x=${cm(sectionPair.sections[1].x)} cm; N4 no plano de cada ramo`,
-      1.8,
-    );
-  for (const section of sectionPair.sections)
-    barPath(
-      translatePath(
-        section.path,
-        section.offset,
-        g.cover + r.stirrupDiameter / 2,
-      ),
-      sectionX,
-      y,
-    );
-  for (const { v, depth } of projectedConstructiveSection(
-    constructive,
-    sectionPair.sections,
-  ))
-    entities.push({
-      type: "circle",
-      center: { x: sectionX + v / 10, y: y + depth / 10 },
-      radius: constructive.diameter / 20,
-      layer: "ARMADURAS",
-    });
-  for (const b of positiveBars) {
-    // Depth of the sloped bottom chord at the section, inside the stirrup.
-    const depth =
-      g.height -
-      slope * cutDepth -
-      (g.cover + r.stirrupDiameter + b.diameter / 2) *
-        Math.sqrt(1 + slope ** 2);
-    for (const v of beamBarPositions(p, b.quantity, b.diameter))
-      entities.push({
-        type: "circle",
-        center: { x: sectionX + v / 10, y: y + depth / 10 },
-        radius: b.diameter / 20,
-        layer: "ARMADURAS",
-      });
-  }
-  for (const b of tieBars) {
-    if (q.frontAnchor === "loop" && !beam)
-      for (const loc of b.locations) {
-        const inset = (B - b.width / 10) / 2;
-        for (const yy of [inset, B - inset])
-          entities.push({
-            type: "circle",
-            center: { x: sectionX + yy, y: y + loc.z / 10 },
-            radius: b.diameter / 20,
-            layer: "ARMADURAS",
-          });
-      }
-    else
-      for (let i = 0; i < b.quantity; i++)
-        entities.push({
-          type: "circle",
-          center: {
-            x:
-              sectionX +
-              (g.cover +
-                r.stirrupDiameter +
-                r.tieDiameter / 2 +
-                (b.quantity > 1
-                  ? (i *
-                      (g.width -
-                        2 * (g.cover + r.stirrupDiameter) -
-                        r.tieDiameter)) /
-                    (b.quantity - 1)
-                  : 0)) /
-                10,
-            y: y + b.locations[0].z / 10,
-          },
-          radius: b.diameter / 20,
-          layer: "ARMADURAS",
-        });
-  }
-  for (const b of stitchBars)
-    for (const loc of b.locations)
-      if (loc.x >= cutDepth) {
-        const offset = (g.cover + r.stirrupDiameter + b.diameter / 2) / 10;
-        for (const yy of [offset, B - offset])
-          entities.push({
-            type: "circle",
-            center: { x: sectionX + yy, y: y + loc.z / 10 },
-            radius: b.diameter / 20,
-            layer: "ARMADURAS",
-          });
-      }
-  dim(sectionX, y + H, sectionX + B, y + H, 8, `b=${cm(g.width)}`);
-  text(
-    sectionX,
-    y + H + 18,
-    `${r.tieCount} ramos Ø${number(r.tieDiameter, 1)} / ${q.tieLayers} camada(s)`,
-    2.1,
+  const innerSection = sectionRebar.stirrups.find(
+    (bar) => bar.family === "stirrupInner",
   );
-  d.tieRows
-    .filter((row) => row.count)
-    .forEach((row, i) =>
-      text(
-        sectionX,
-        y + H + 23 + i * 4,
-        `${i + 1}ª: ${row.count} ramos; eixo a ${cm(row.y)} do topo (${tieBars
-          .filter((b) => b.locations.some((loc) => loc.layer === i))
-          .map((b) => b.mark)
-          .join("/")})`,
-        2.1,
-      ),
-    );
+  drawSection(sectionRebar, sectionX, y);
+  const sectionLayout = new AnnotationLayout(entities);
+  sectionLayout.dimension(
+    { x: sectionX, y: y + sectionH },
+    { x: sectionX + B, y: y + sectionH },
+    dimensionLabel("width", g.width),
+    "bottom",
+  );
+  sectionLayout.dimension(
+    { x: sectionX + B, y },
+    { x: sectionX + B, y: y + sectionH },
+    dimensionLabel("sectionHeight", sectionDepth),
+    "right",
+  );
+  const sectionTitles: Row[] = [[`CORTE A-A / x=${cm(cutDepth)} cm`, 2.8]];
+  if (innerSection)
+    sectionTitles.push([
+      `N3G projetado de x=${cm(innerSection.x)} cm; N4 no plano de cada ramo`,
+      1.8,
+    ]);
+  const sectionBlock = viewBlock(sectionLayout, sectionX, sectionTitles, [
+    [
+      `Tirante detalhado: ${qty("tie")} ramos Ø${number(r.tieDiameter, 1)} / ${detailedTieLayers} camada(s)`,
+    ],
+    ...d.tieRows.flatMap((row, i): Row[] =>
+      row.count
+        ? [
+            [
+              `${i + 1}ª: ${countText(row.detailedCount, row.count)} ramos detalhados; eixo a ${cm(row.y)} do topo (${tieBars
+                .filter((bar) => bar.locations.some((loc) => loc.layer === i))
+                .map((bar) => bar.mark)
+                .join("/")})`,
+            ],
+          ]
+        : [],
+    ),
+  ]);
   // Plan with actual frontal loops and placement lines for the vertical stirrups.
-  const planY = y + H + Math.max(55, q.tieLayers * 5 + 40);
-  text(x - P, planY - 10, "PLANTA DAS ARMADURAS / TIRANTES", 2.8);
   rect(x - P, planY, P, B);
   rect(x, planY, L, B);
   rect(
@@ -588,317 +538,369 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     "EIXOS",
     true,
   );
-  for (const b of tieBars)
-    for (const loc of b.locations) {
-      const planOffset =
-        q.frontAnchor === "loop" && !beam
-          ? (B - b.width / 10) / 2
-          : (g.cover +
-              r.stirrupDiameter +
-              r.tieDiameter / 2 +
-              (loc.x *
-                (g.width - 2 * (g.cover + r.stirrupDiameter) - r.tieDiameter)) /
-                Math.max(b.quantity - 1, 1)) /
-            10;
-      if (beam) {
-        // In plan the vertical bends project onto the ends of the straight run.
-        const xs = samplePath(b.path).map((v) => v.x);
-        line(
-          x + Math.min(...xs) / 10,
-          planY + planOffset,
-          x + Math.max(...xs) / 10,
-          planY + planOffset,
-          "ARMADURAS",
-        );
-      } else barPath(b.path, x, planY + planOffset);
-      if ((loc.layer ?? 0) > 0)
-        leader(
-          x + L * 0.7,
-          planY + B / 2,
-          x + L + 3,
-          planY + B + 12 + (loc.layer ?? 0) * 5,
-          `${b.mark} - ${loc.layer! + 1}ª camada`,
-        );
-    }
-  for (const b of positiveBars) {
-    const xs = samplePath(b.path).map((v) => v.x);
-    for (const v of beamBarPositions(p, b.quantity, b.diameter))
-      line(
-        x + Math.min(...xs) / 10,
-        planY + v / 10,
-        x + Math.max(...xs) / 10,
-        planY + v / 10,
-        "ARMADURAS",
-        true,
-      );
+  const plan = projectPlan(d);
+  const belowTies = (bar: Bar) =>
+    bar.family === "stitch" ||
+    bar.family === "lower" ||
+    bar.family === "positive" ||
+    bar.family === "constructive" ||
+    bar.family === "stirrup" ||
+    bar.family === "stirrupInner";
+  // Put the dashed secondary steel behind the solid ties and connections.
+  drawShapes(
+    plan.filter(({ bar }) => belowTies(bar)),
+    x,
+    planY,
+    belowTies,
+  );
+  drawShapes(
+    plan.filter(({ bar }) => !belowTies(bar)),
+    x,
+    planY,
+  );
+  const planForm = drawingBounds(entities);
+  const axisTop = planForm.top - 3;
+  const axisBottom = planForm.bottom + 3;
+  const axes = [
+    [x + cutDepth / 10, "A"],
+    [x + g.loadOffset / 10, "B"],
+  ] as const;
+  for (const [axis] of axes)
+    line(axis, axisTop, axis, axisBottom, "EIXOS", true);
+  const planLayout = new AnnotationLayout(entities);
+  for (const [axis, label] of axes) {
+    planLayout.axisLabel(axis, axisTop, label, "top");
+    planLayout.axisLabel(axis, axisBottom, label, "bottom");
   }
-  for (const v of constructive.positions) {
-    const xs = samplePath(constructive.path).map((pt) => pt.x);
-    line(
-      x + Math.min(...xs) / 10,
-      planY + v / 10,
-      x + Math.max(...xs) / 10,
-      planY + v / 10,
-      "ARMADURAS",
-      true,
+  planLayout.dimension(
+    { x, y: planY + B },
+    { x: x + L, y: planY + B },
+    dimensionLabel("length", g.length),
+    "bottom",
+  );
+  planLayout.dimension(
+    { x: x + L, y: planY },
+    { x: x + L, y: planY + B },
+    dimensionLabel("width", g.width),
+    "right",
+  );
+  for (let layer = 1; layer < d.tieRows.length; layer++) {
+    const bars = tieBars.filter((bar) =>
+      bar.locations.some((loc) => loc.layer === layer),
+    );
+    const item = plan.find(
+      ({ bar, instance, part }) =>
+        part.role === "body" &&
+        bars.includes(bar) &&
+        bar.locations[bar.instances.indexOf(instance)]?.layer === layer,
+    );
+    const anchor = item && shapeAnchor(item.shape);
+    if (!anchor) continue;
+    planLayout.leader(
+      { x: x + anchor.x / 10, y: planY + anchor.y / 10 },
+      `${bars.map((bar) => bar.mark).join(" / ")} - ${layer + 1}ª camada`,
     );
   }
-  for (const section of transverseGeometry(p).sections)
-    line(
-      x + section.x / 10,
-      planY + section.offset / 10,
-      x + section.x / 10,
-      planY + (section.offset + section.width) / 10,
-      "ARMADURAS",
-      true,
-    );
-  for (const b of d.bars.filter((b) => b.family === "welded")) {
-    line(
-      x + b.locations[0].x / 10,
-      planY + g.cover / 10,
-      x + b.locations[0].x / 10,
-      planY + B - g.cover / 10,
-      "ARMADURAS",
-    );
-    entities.push({
-      type: "circle",
-      center: { x: x + b.locations[0].x / 10, y: y + b.locations[0].z / 10 },
-      radius: b.diameter / 20,
-      layer: "ARMADURAS",
-    });
-  }
-  const cutX = x + cutDepth / 10;
-  line(cutX, planY - 5, cutX, planY + B + 5, "EIXOS", true);
-  text(cutX - 2, planY - 6, "A", 2.7);
-  text(cutX - 2, planY + B + 10, "A", 2.7);
-  dim(x, planY + B, x + L, planY + B, 8, cm(g.length));
-  dim(x + L, planY, x + L, planY + B, 10, cm(g.width));
-  if (s.pins)
-    for (let i = 0; i < s.pins; i++)
-      entities.push({
-        type: "circle",
-        center: {
-          x: x + g.loadOffset / 10,
-          y: planY + pinCenters(p)[i] / 10,
-        },
-        radius: s.pinDiameter / 20,
-        layer: "ARMADURAS",
-      });
-  text(
+  const stitchPenetration = (family: "stitch" | "lower") => {
+    const bar = stitchBars.find((bar) => bar.family === family);
+    const length = bar?.anchorage.find(
+      (anchor) => anchor.end === "embutimento",
+    )?.length;
+    return length == null
+      ? ""
+      : `${family === "stitch" ? "N2" : "N2I"} ${cm(length)} cm`;
+  };
+  const stitchLengths = [
+    stitchPenetration("stitch"),
+    stitchPenetration("lower"),
+  ].filter(Boolean);
+  const planBlock = viewBlock(
+    planLayout,
     x - P,
-    planY + B + 23,
-    `Apoio: ${cm(q.bearingLength)} × ${cm(q.bearingWidth)} × ${cm(q.bearingHeight)} cm`,
-    2.2,
+    [["PLANTA DAS ARMADURAS / TIRANTES", 2.8]],
+    [
+      [
+        `Apoio: ${cm(q.bearingLength)} × ${cm(q.bearingWidth)} × ${cm(q.bearingHeight)} cm`,
+        2.2,
+      ],
+      [
+        stitchLengths.length
+          ? `Penetração no suporte pelo eixo · ${stitchLengths.join(" · ")} · cobrimento nominal ${cm(g.cover)} cm.`
+          : `Cobrimento nominal ${cm(g.cover)} cm.`,
+        2.2,
+      ],
+      ["Armaduras secundárias em tracejado.", 2.2],
+    ],
   );
-  text(
-    x - P,
-    planY + B + 28,
-    `Costura penetra ${cm(s.stitchEmbedment)} cm no suporte. Cobrimento nominal ${cm(g.cover)} cm.`,
-    2.2,
-  );
-  const n3Pitch =
-    r.stirrupCount > 1
-      ? (g.length - 2 * g.cover - r.stirrupDiameter) / (r.stirrupCount - 1)
-      : 0;
-  const bearingH = cut
-    ? bottomDepth(concrete, g.loadOffset) / 10
-    : H - (slope * g.loadOffset) / 10;
-  text(
-    sectionX,
-    planY - (s.pins ? Math.max(10, s.pinProjection / 10 + 5) : 10),
-    `CORTE B-B / x=${cm(g.loadOffset)} cm`,
-    2.8,
-  );
+  const outerStations = verticalBars
+    .filter((bar) => bar.family === "stirrup")
+    .flatMap((bar) => bar.locations.map((loc) => loc.x))
+    .sort((a, b) => a - b);
+  const bearingDepth = bottomDepth(concrete, g.loadOffset);
+  const bearingH = bearingDepth / 10;
   rect(sectionX, planY, B, bearingH);
   rect(
     sectionX + (B - q.bearingWidth / 10) / 2,
-    planY - Math.max(q.bearingHeight / 10, 1),
+    planY - bearingHeight,
     q.bearingWidth / 10,
-    Math.max(q.bearingHeight / 10, 1),
+    bearingHeight,
   );
-  for (const b of tieBars) {
-    for (const loc of b.locations)
-      if (q.frontAnchor === "loop") {
-        const offset = (B - b.width / 10) / 2;
-        for (const yy of [offset, B - offset])
-          entities.push({
-            type: "circle",
-            center: { x: sectionX + yy, y: planY + loc.z / 10 },
-            radius: b.diameter / 20,
-            layer: "ARMADURAS",
-          });
-      } else
-        for (let i = 0; i < b.quantity; i++)
-          entities.push({
-            type: "circle",
-            center: {
-              x:
-                sectionX +
-                (g.cover +
-                  r.stirrupDiameter +
-                  r.tieDiameter / 2 +
-                  (i *
-                    (g.width -
-                      2 * (g.cover + r.stirrupDiameter) -
-                      r.tieDiameter)) /
-                    Math.max(b.quantity - 1, 1)) /
-                  10,
-              y: planY + loc.z / 10,
-            },
-            radius: b.diameter / 20,
-            layer: "ARMADURAS",
-          });
-  }
-  for (const b of stitchBars)
-    for (const loc of b.locations)
-      if (loc.x >= g.loadOffset) {
-        const offset = (g.cover + r.stirrupDiameter + b.diameter / 2) / 10;
-        for (const yy of [offset, B - offset])
-          entities.push({
-            type: "circle",
-            center: { x: sectionX + yy, y: planY + loc.z / 10 },
-            radius: b.diameter / 20,
-            layer: "ARMADURAS",
-          });
-      }
-  for (const v of constructive.positions)
-    for (const depth of sectionDepths(constructive.path, g.loadOffset))
-      entities.push({
-        type: "circle",
-        center: { x: sectionX + v / 10, y: planY + depth / 10 },
-        radius: constructive.diameter / 20,
-        layer: "ARMADURAS",
-      });
-  if (s.pins)
-    for (let i = 0; i < s.pins; i++) {
-      const py = pinCenters(p)[i] / 10;
-      line(
-        sectionX + py,
-        planY - s.pinProjection / 10,
-        sectionX + py,
-        planY + s.pinEmbedment / 10,
-        "ARMADURAS",
+  // B–B at the load axis: same cut as A–A (loops, beam bars and P1 included,
+  // stitches only where they still reach x, pins in their own plane).
+  drawSection(sectionBars(p, d, g.loadOffset), sectionX, planY);
+  // Pin dimensions refer to the placed pins (planes y = centre of each pin).
+  const centers = d.bars
+    .filter((bar) => bar.family === "pin")
+    .flatMap((bar) => bar.instances.map((pin) => pin.parts[0].at / 10));
+  const bearingLayout = new AnnotationLayout(entities);
+  const bearingBase = (u: number) => ({ x: sectionX + u, y: planY + bearingH });
+  if (centers.length > 1)
+    bearingLayout.dimension(
+      bearingBase(centers[0]),
+      bearingBase(centers.at(-1)!),
+      `s = ${centers.length - 1} × ${cm((centers[1] - centers[0]) * 10)}`,
+      "bottom",
+    );
+  if (centers.length)
+    bearingLayout.dimension(
+      bearingBase(0),
+      bearingBase(centers[0]),
+      `e = ${cm(centers[0] * 10)}`,
+      "bottom",
+    );
+  bearingLayout.dimension(
+    bearingBase(0),
+    bearingBase(B),
+    dimensionLabel("width", g.width),
+    "bottom",
+  );
+  bearingLayout.dimension(
+    { x: sectionX + B, y: planY },
+    bearingBase(B),
+    dimensionLabel("bearingSectionHeight", bearingDepth),
+    "right",
+  );
+  const bearingBlock = viewBlock(bearingLayout, sectionX, [
+    [`CORTE B-B / x=${cm(g.loadOffset)} cm`, 2.8],
+  ]);
+
+  const margin = 10;
+  const gap = 9;
+  const bodyTop = 44;
+  const left =
+    margin - Math.min(elevationBlock.bounds.left, planBlock.bounds.left);
+  const right =
+    left +
+    Math.max(elevationBlock.bounds.right, planBlock.bounds.right) +
+    gap -
+    Math.min(sectionBlock.bounds.left, bearingBlock.bounds.left);
+  const topRow =
+    bodyTop - Math.min(elevationBlock.bounds.top, sectionBlock.bounds.top);
+  const bottomRow =
+    topRow +
+    Math.max(elevationBlock.bounds.bottom, sectionBlock.bounds.bottom) +
+    gap -
+    Math.min(planBlock.bounds.top, bearingBlock.bounds.top);
+  const place = (block: typeof elevationBlock, dx: number, dy: number) => {
+    for (const entity of block.entities)
+      entities.push(translateEntity(entity, dx, dy));
+  };
+  place(elevationBlock, left, topRow);
+  place(sectionBlock, right, topRow);
+  place(planBlock, left, bottomRow);
+  place(bearingBlock, right, bottomRow);
+  const infoY =
+    bottomRow +
+    Math.max(planBlock.bounds.bottom, bearingBlock.bounds.bottom) +
+    gap;
+  textRows(right + sectionX, infoY, [
+    ["DISTRIBUIÇÃO DOS ESTRIBOS", 2.7],
+    [
+      `N3: ${qty("stirrup")} externos detalhados · N3G: ${qty("stirrupInner")} internos detalhados.`,
+    ],
+    [
+      outerStations.length
+        ? `N3: primeiro eixo x=${cm(outerStations[0])} cm; último x=${cm(outerStations.at(-1)!)} cm.`
+        : "Nenhum eixo N3 detalhado.",
+    ],
+    [`Costura superior: ${qty("stitch")} barras nos 2d/3 superiores.`],
+    [`Costura inferior: ${qty("lower")} barras no trecho restante.`],
+    [
+      cut
+        ? `Face inferior recortada (concreto excedente removido): ${anglesText}.`
+        : `Face inferior com inclinação ${anglesText}.`,
+    ],
+  ]);
+  const tableX = drawingBounds(entities).right + gap;
+  type GraphicCell = {
+    height: number;
+    draw: (x: number, y: number, height: number) => void;
+  };
+  type TableCell = string | GraphicCell;
+  function schematicCell(bar: Bar): GraphicCell {
+    const pad = 3;
+    const gap = 4;
+    const plotWidth = 66;
+    const labelSize = 2.05;
+    const linePitch = textPitch(labelSize);
+    const labelWidth = schematicWidth - plotWidth - gap - 2 * pad - 0.5;
+    const hook = bar.instances[0]?.parts.find(
+      (part) => part.role === "hook",
+    )?.path;
+    const shapes = [bar.path, ...(hook ? [hook] : [])].map((path) => {
+      const [left, right] = pathExtent(path, "x");
+      const [top, bottom] = pathExtent(path, "y");
+      return { path, left, top, width: right - left, height: bottom - top };
+    });
+    const between = (shapes.length - 1) * gap;
+    const pathsWidth = shapes.reduce((sum, shape) => sum + shape.width, 0) / 10;
+    const pathsHeight = Math.max(...shapes.map((shape) => shape.height)) / 10;
+    // Leave room for the stroke on both sides of the fitted centre lines.
+    const scale = Math.min(
+      1,
+      (plotWidth - between - 1) / Math.max(pathsWidth, 1),
+      15 / Math.max(pathsHeight, 1),
+    );
+    const body = shapes[0];
+    const dimensions = [body.width, body.height]
+      .filter((value) => value > 1e-6)
+      .map((value) => cm(value));
+    const straights = bar.path.segments
+      .flatMap((seg) =>
+        seg.type === "line"
+          ? [Math.hypot(seg.b.x - seg.a.x, seg.b.y - seg.a.y)]
+          : [],
+      )
+      .filter((length) => length > 1e-6);
+    const turns = [
+      ...new Set(
+        bar.path.segments.flatMap((seg) =>
+          seg.type === "arc"
+            ? [`${number((Math.abs(seg.sweep) * 180) / Math.PI, 1)}°`]
+            : [],
+        ),
+      ),
+    ];
+    const labels = [
+      `${bar.description}${bar.mandrel ? ` · D = ${cm(bar.mandrel)} cm` : ""}`,
+    ];
+    if (dimensions.length > 1)
+      labels.push(`Entre eixos ${dimensions.join(" × ")} cm`);
+    if (straights.length)
+      labels.push(
+        `Retas (cm) ${straights.map((length) => cm(length)).join(" / ")}`,
       );
+    if (turns.length) labels.push(`Dobras ${turns.join(" / ")}`);
+    if (bar.family === "tie" && bar.hookTail) {
+      labels.push(
+        "Gancho de 90° no suporte",
+        `Ponta reta ${cm(bar.hookTail)} cm`,
+      );
+      const rearArc = hook?.segments.find((seg) => seg.type === "arc");
+      const support = bar.anchorage.find((anchor) => anchor.end === "suporte");
+      if (rearArc && support?.projection !== undefined)
+        labels.push(
+          `Vista lateral · D = ${cm(2 * rearArc.radius - bar.diameter)} cm`,
+          `Projeção no suporte ${cm(support.projection)} cm · total ${cm(bar.height)} cm`,
+        );
     }
-  if (s.pins) {
-    const centers = pinCenters(p).map((v) => v / 10);
-    if (centers.length > 1)
-      dim(
-        sectionX + centers[0],
-        planY + bearingH,
-        sectionX + centers.at(-1)!,
-        planY + bearingH,
-        8,
-        `${centers.length - 1}×${cm((centers[1] - centers[0]) * 10)}`,
+    labels.push(bar.note);
+    if (bar.family === "stirrup" || bar.family === "stirrupInner")
+      labels.push(
+        `Eixos x da face (cm) ${bar.locations.map((v) => cm(v.x)).join(" / ")}`,
       );
-    dim(
-      sectionX,
-      planY + bearingH,
-      sectionX + centers[0],
-      planY + bearingH,
-      16,
-      `e=${cm(centers[0] * 10)}`,
+    if (bar.family === "stitch" || bar.family === "lower")
+      labels.push(
+        `Eixos z do topo (cm) ${bar.locations.map((v) => cm(v.z)).join(" / ")}`,
+      );
+    const lines = labels.flatMap((label) =>
+      wrapText(label, labelWidth, labelSize),
+    );
+    const labelHeight = lines.length * linePitch;
+    return {
+      height: Math.max(
+        14,
+        2 * pad + Math.max(pathsHeight * scale + 1, labelHeight),
+      ),
+      draw: (xx, yy, height) => {
+        let axisX = xx + pad + (plotWidth - pathsWidth * scale - between) / 2;
+        for (const shape of shapes) {
+          barPath(
+            shape.path,
+            bar.diameter,
+            axisX - (shape.left * scale) / 10,
+            yy +
+              (height - (shape.height * scale) / 10) / 2 -
+              (shape.top * scale) / 10,
+            { scale, schematic: bar.mark },
+          );
+          axisX += (shape.width * scale) / 10 + gap;
+        }
+        const labelY = yy + (height - labelHeight) / 2;
+        for (const [i, label] of lines.entries())
+          text(
+            xx + pad + plotWidth + gap,
+            labelY + i * linePitch + labelSize * 1.12 + 0.25,
+            label,
+            labelSize,
+          );
+      },
+    };
+  }
+
+  function tableRowHeight(row: TableCell[]) {
+    return Math.max(
+      5.3,
+      ...row.map((cell) => (typeof cell === "string" ? 0 : cell.height)),
     );
   }
-  dim(
-    sectionX + B,
-    planY,
-    sectionX + B,
-    planY + bearingH,
-    10,
-    cm(bearingH * 10),
-  );
-  const bx = x + g.loadOffset / 10;
-  line(bx, planY - 5, bx, planY + B + 5, "EIXOS", true);
-  text(bx - 2, planY - 6, "B", 2.7);
-  text(bx - 2, planY + B + 10, "B", 2.7);
-  const infoY = planY + Math.max(B, bearingH) + 22;
-  text(sectionX, infoY, "DISTRIBUIÇÃO DOS ESTRIBOS", 2.7);
-  text(
-    sectionX,
-    infoY + 6,
-    `${r.stirrupCount} peças; primeiro/último eixo a ${cm(g.cover + r.stirrupDiameter / 2)} cm da face`,
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 11,
-    n3Pitch
-      ? `Entre eixos: ${cm(n3Pitch)} cm; ver posições variáveis abaixo.`
-      : "Posição única no centro do comprimento.",
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 18,
-    `Costura superior: ${r.stitchCount} peças nos 2d/3 superiores.`,
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 23,
-    `Costura inferior: ${q.lowerStitchCount} peças no trecho restante.`,
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 30,
-    cut
-      ? `Face inferior recortada (concreto excedente removido): ${anglesText}.`
-      : `Face inferior com inclinação ${anglesText}.`,
-    2.1,
-  );
-  // Steel schedule. Every position references the very same bar centre-line model as the sketches.
   const table = (
     tx: number,
     ty: number,
     widths: number[],
-    rows: string[][],
-    header = true,
+    rows: TableCell[][],
   ) => {
-    const rowH = 5.3;
     let yy = ty;
     for (const [index, row] of rows.entries()) {
+      const rowH = tableRowHeight(row);
       let xx = tx;
       row.forEach((cell, j) => {
         rect(xx, yy, widths[j], rowH, "COTAS");
-        text(xx + 1.5, yy + 3.6, cell, index === 0 && header ? 2.05 : 2.1);
+        if (typeof cell === "string")
+          text(
+            xx + 1.5,
+            yy + (rowH - 5.3) / 2 + 3.6,
+            cell,
+            index === 0 ? 2.05 : 2.1,
+          );
+        else cell.draw(xx, yy, rowH);
         xx += widths[j];
       });
       yy += rowH;
     }
     return yy;
   };
-  text(tableX, 45, "RELAÇÃO DO AÇO - BARRAS FÍSICAS", 2.9);
-  const rows = [
-    [
-      "Pos.",
-      "Aço",
-      "Ø mm",
-      "Q/pç",
-      "Q total",
-      "C unit cm",
-      "C total cm",
-      "kg total",
-    ],
-    ...d.bars.map((b) => [
-      b.mark,
-      String(b.grade / 10),
-      number(b.diameter, 1),
-      String(b.quantity),
-      String(b.quantity * p.quantity),
-      cm(b.cutLength),
-      cm(b.cutLength * b.quantity * p.quantity),
-      number(
-        ((b.cutLength * Math.PI * b.diameter ** 2) / 4) *
-          7.85e-6 *
-          b.quantity *
-          p.quantity,
-        2,
-      ),
-    ]),
-  ];
-  let tableBottom = table(tableX, 49, [15, 16, 19, 20, 22, 35, 47, 31], rows);
+  const tableGap = 12;
+  const steelColumns = [15, 16, 19, 20, 22, 35, 47, 31, schematicWidth];
+  for (const rows of schedules)
+    for (const row of rows)
+      for (const [i, value] of row.entries())
+        if (typeof value === "string")
+          steelColumns[i] = Math.max(
+            steelColumns[i],
+            textWidth(value, 2.1) + 3,
+          );
+  const tableW = steelColumns.reduce((sum, column) => sum + column, 0);
+  const tableTop = bodyTop + 5;
+  let tableBottom = tableTop;
+  for (const [index, rows] of schedules.entries()) {
+    const xx = tableX + index * (tableW + tableGap);
+    text(xx, bodyTop + 1, "RELAÇÃO DO AÇO - BARRAS FÍSICAS", 2.9);
+    tableBottom = Math.max(
+      tableBottom,
+      table(xx, tableTop, steelColumns, rows),
+    );
+  }
   tableBottom += 8;
   text(tableX, tableBottom, "RESUMO DO AÇO - QUANTIDADE TOTAL DO TIPO", 2.6);
   tableBottom = table(
@@ -910,8 +912,8 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       ...d.steelSummary.map((v) => [
         grade(v.grade),
         number(v.diameter, 1),
-        cm(v.length * p.quantity),
-        number(v.mass * p.quantity, 2),
+        cm(v.totalLength),
+        number(v.totalMass, 2),
       ]),
     ],
   );
@@ -921,168 +923,72 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     `Aço por peça: ${number(d.mass, 2)} kg · ${p.quantity} peças: ${number(d.totalMass, 2)} kg`,
     2.4,
   );
+  // Concrete consumption of the same piece outline used by the bars and by
+  // the quantities of the application and of the CSV (pieceVolume).
   text(
     tableX,
     tableBottom + 11,
+    `Concreto por peça: ${number(d.concreteVolume, 3)} m³ · ${p.quantity} peças: ${number(d.totalConcreteVolume, 3)} m³ · Taxa de aço: ${number(d.steelRate, 1)} kg/m³`,
+    2.4,
+  );
+  text(
+    tableX,
+    tableBottom + 16,
     "Massa teórica; sem perdas de corte, emendas ou acréscimo de compra.",
     2.05,
   );
-  // Bar drawings laid out freely. All coordinates remain 1:1 in cm; no A-series sheet.
-  let bottom = Math.max(infoY + 43, tableBottom + 25);
-  text(10, bottom, "FORMAS DE DOBRAMENTO E POSIÇÕES", 3);
+
+  const bodyBounds = drawingBounds(entities);
+  const heading = `${p.name}  |  DETALHAMENTO DO CONSOLO`;
+  const subtitle = `${project.name} · ${p.description}`;
+  const revision = `${s.revision || "R00"}  ·  ${p.quantity} PEÇA(S)`;
+  const materialLine = `fck ${number(p.materials.fck, 0)} MPa · Tirante ${grade(p.materials.fyk)} · Transversal ${grade(p.materials.fykTransverse)} · Cobrimento ${cm(g.cover)} cm · Cotas em cm / bitolas em mm`;
+  const tieLine = `Tirante: ${placed.tie} ramos detalhados em ${detailedTieLayers} camada(s)${detailedTieLayers === 2 ? " · TIRANTE DUPLO" : ""}${placed.tie !== declared.tie ? ` (${countText(placed.tie, declared.tie)})` : ""} · V${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.vertical / 1000, 1)} kN · H${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.horizontal / 1000, 1)} kN · a_calc=${cm(reactionGeometry(p).a)} cm`;
+
+  const leftHeader = Math.max(
+    textWidth(heading, 3.5),
+    textWidth(subtitle, 2.5),
+    textWidth(materialLine, 2.3),
+    textWidth(tieLine, 2.3),
+  );
+  const rightHeader = Math.max(
+    textWidth(revision, 2.8),
+    textWidth("ConsoloStruct · OPENSTRUCT", 2.3),
+  );
+  const width = Math.max(
+    540,
+    bodyBounds.right + margin,
+    leftHeader + rightHeader + 3 * margin,
+  );
+  const body = entities;
+  entities = [];
+  text(margin, 8, heading, 3.5);
+  text(width - margin, 8, revision, 2.8, "TEXTOS", "end");
+  text(margin, 14, subtitle, 2.5);
+  text(width - margin, 14, "ConsoloStruct · OPENSTRUCT", 2.3, "TEXTOS", "end");
+  text(margin, 20, materialLine, 2.3);
+  text(margin, 26, tieLine, 2.3);
   text(
     10,
-    bottom + 6,
-    "Cotas no eixo da barra (cm); D = diâmetro interno do mandril (cm). C = comprimento de corte desenvolvido, arredondado para cima a 0,1 cm.",
-    2.2,
+    32,
+    d.issues.some((i) => i.severity === "error")
+      ? "PENDÊNCIAS IMPEDITIVAS - CORRIGIR ANTES DA EXECUÇÃO"
+      : "PARA CONFERÊNCIA DO RESPONSÁVEL TÉCNICO",
+    2.5,
+    "ALERTAS",
   );
-  text(
-    10,
-    bottom + 11,
-    "Ganchos de estribos: 135° voltados para dentro; pontas retas ≥5Ø e ≥5 cm. Nas alças, Q/pç conta alças, cada uma com 2 ramos resistentes.",
-    2.2,
-  );
-  bottom += 20;
-  const cards = d.bars.map((b) => {
-    const pts = samplePath(b.path),
-      xs = pts.map((v) => v.x / 10),
-      ys = pts.map((v) => v.y / 10);
-    const minX = Math.min(...xs),
-      maxX = Math.max(...xs),
-      minY = Math.min(...ys),
-      maxY = Math.max(...ys);
-    return {
-      b,
-      minX,
-      minY,
-      w: Math.max(maxX - minX + 32, 140),
-      h: Math.max(maxY - minY + 43 + (b.hookTail ? 24 : 0), 72),
-    };
-  });
-  let cardX = 10,
-    cardY = bottom,
-    rowH = 0;
-  for (const card of cards) {
-    if (cardX + card.w > width - 10 && cardX > 10) {
-      cardY += rowH + 8;
-      cardX = 10;
-      rowH = 0;
-    }
-    const { b } = card,
-      bx = cardX + 12 - card.minX,
-      by = cardY + 21 - card.minY;
-    text(cardX, cardY, barLabel(b), 2.5);
-    text(
-      cardX,
-      cardY + 5,
-      `${b.description} · ${grade(b.grade)}${b.mandrel ? ` · D=${cm(b.mandrel)}` : ""}`,
-      2.15,
-    );
-    barPath(b.path, bx, by);
-    const pts = samplePath(b.path),
-      maxX = Math.max(...pts.map((v) => v.x)),
-      maxY = Math.max(...pts.map((v) => v.y));
-    if (b.width > 0)
-      dim(
-        bx + card.minX,
-        by + card.minY,
-        bx + maxX / 10,
-        by + card.minY,
-        -5,
-        cm(maxX - card.minX * 10),
-      );
-    if (maxY / 10 - card.minY > 2)
-      dim(
-        bx + maxX / 10,
-        by + card.minY,
-        bx + maxX / 10,
-        by + maxY / 10,
-        6,
-        cm(maxY - card.minY * 10),
-      );
-    if (beam && (b.family === "tie" || b.family === "positive"))
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Trechos retos: ${b.path.segments
-          .filter((v) => v.type === "line")
-          .map((v) => cm(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y)))
-          .join(" / ")} cm; dobras nas duas extremidades.`,
-        2.05,
-      );
-    else if (b.family === "tie") {
-      text(
-        cardX,
-        cardY + card.h - (b.hookTail ? 28 : 16),
-        `Projeção total=${cm(b.height)}; largura entre eixos=${cm(b.width)} cm`,
-        2.05,
-      );
-      if (b.hookTail) {
-        const hx = cardX + 5,
-          hy = cardY + card.h - 25;
-        poly(
-          [
-            { x: hx, y: hy + 13 },
-            { x: hx, y: hy },
-            { x: hx + 18, y: hy },
-          ],
-          "ARMADURAS",
-        );
-        text(
-          hx + 23,
-          hy + 4,
-          `Gancho 90° em cada extremidade do suporte: ponta=${cm(b.hookTail)} cm`,
-          2.05,
-        );
-        text(
-          hx + 23,
-          hy + 9,
-          `Projeção no suporte=${cm(s.supportHookProjection)} cm; D=${cm(mandrelDiameter(b.diameter, p.materials.fyk))} cm.`,
-          2.05,
-        );
-        text(
-          hx + 23,
-          hy + 14,
-          "Vista lateral do gancho (esquemática, fora do plano da alça).",
-          2.05,
-        );
-      }
-    }
-    text(cardX, cardY + card.h - 10, b.note.slice(0, 115), 2.05);
-    if (b.family === "stirrup" || b.family === "stirrupInner")
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Eixo x=${b.locations.map((v) => cm(v.x)).join(" / ")} cm a partir da face do suporte.`,
-        2.05,
-      );
-    if (b.family === "constructive")
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Trechos retos: ${b.path.segments
-          .filter((v) => v.type === "line")
-          .map((v) => cm(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y)))
-          .join(" / ")} cm; ${cut ? "dobras" : "dobra"} ${anglesText}.`,
-        2.05,
-      );
-    if (b.family === "stitch" || b.family === "lower")
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Eixo z=${b.locations.map((v) => cm(v.z)).join(" / ")} cm abaixo do topo.`,
-        2.05,
-      );
-    cardX += card.w + 12;
-    rowH = Math.max(rowH, card.h);
-  }
-  bottom = cardY + rowH + 15;
-  text(10, bottom, "NOTAS DE DETALHAMENTO E CONFERÊNCIA", 2.8);
+  line(margin, 36, width - margin, 36, "COTAS");
+  for (const entity of body) entities.push(entity);
+  let bottom = textRows(margin, bodyBounds.bottom + gap, [
+    ["NOTAS DE DETALHAMENTO E CONFERÊNCIA", 2.8],
+  ]);
   const safety = materialSafety(q);
   const notes = [
-    `N3: ${r.stirrupBranches ?? 2} ramos efetivos por posição; ${r.stirrupBranches === 4 ? "estribo externo + grampo interno" : "estribo externo"}. N4: ${r.stirrupBranches ?? 2} barras construtivas Ø${number(r.constructiveDiameter ?? 8, 1)} mm, sem contribuição resistente. N5 fendilhamento e N6 suspensão exigem detalhamento próprio.`,
+    `N3: ${qty("stirrup")} estribo(s) externo(s); N3G: ${qty("stirrupInner")} estribo(s) interno(s). N4: ${qty("constructive")} barras construtivas Ø${number(r.constructiveDiameter ?? 8, 1)} mm, sem contribuição resistente. N5 fendilhamento e N6 suspensão exigem detalhamento próprio.`,
     `Responsável técnico: ${project.author || "não informado"}. Cliente: ${project.client || "não informado"}. Revisão ${s.revision || "R00"}.`,
-    "Desenhos soltos: geometria e formas em centímetros; diâmetros das barras em milímetros. CAD em escala real 1:1; PDF em escala nominal 1:10 ao imprimir a 100%.",
+    "Vistas em centímetros e bitolas em milímetros. Escala das vistas 1:1 no CAD e 1:10 no PDF impresso a 100%.",
+    "Na Relação do Aço, as formas são proporcionais. Cotas no eixo e diâmetro interno D em cm. C é o comprimento de corte arredondado para cima a 0,1 cm.",
+    "Ganchos dos estribos a 135° para dentro, com pontas retas ≥5Ø e ≥5 cm. Q/pç conta alças quando indicadas. Cada alça fornece dois ramos resistentes.",
     "Mandris e ganchos: NBR 6118:2026, 9.4.2.3, tabelas 9.1 e 9.2 e 9.4.6.1. Estribos representados pela projeção nominal com fechamento de ganchos fora do plano.",
     "Comprimentos C somam trechos retos e arcos no eixo; não se obtêm por soma de cotas externas. O excedente de arredondamento fica na ponta reta. Densidade do aço: 7 850 kg/m³.",
     "Não cortar ou dobrar barras a partir da escala da tela. Conferir as cotas, o ajuste das armaduras no suporte e as tolerâncias do fabricante.",
@@ -1111,17 +1017,13 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     ),
     ...(s.notes ? [s.notes] : []),
   ];
-  for (const value of notes)
-    for (const row of wrap(value, Math.floor((width - 20) / 1.25))) {
-      bottom += 4.5;
-      text(
-        10,
-        bottom,
-        row,
-        2.1,
-        value.startsWith("CORRIGIR") ? "ALERTAS" : "TEXTOS",
-      );
-    }
+  for (const value of notes) {
+    const layer = value.startsWith("CORRIGIR") ? "ALERTAS" : "TEXTOS";
+    const rows = wrapText(value, width - 2 * margin, 2.1).map(
+      (row): Row => [row, 2.1, layer],
+    );
+    bottom = textRows(margin, bottom, rows);
+  }
   return { width, height: bottom + 12, entities, name: p.name, detail: d };
 }
 
@@ -1129,17 +1031,8 @@ export function combineDrawings(drawings: Drawing[]): Drawing {
   let y = 0;
   const entities: Entity[] = [];
   for (const drawing of drawings) {
-    for (const e of drawing.entities) {
-      if (e.type === "line")
-        entities.push({
-          ...e,
-          a: { ...e.a, y: e.a.y + y },
-          b: { ...e.b, y: e.b.y + y },
-        });
-      else if (e.type === "text")
-        entities.push({ ...e, at: { ...e.at, y: e.at.y + y } });
-      else entities.push({ ...e, center: { ...e.center, y: e.center.y + y } });
-    }
+    for (const entity of drawing.entities)
+      entities.push(translateEntity(entity, 0, y));
     y += drawing.height + 30;
   }
   return {
@@ -1175,8 +1068,8 @@ export function steelSummaryDrawing(
           length: 0,
           mass: 0,
         };
-      old.length += v.length * d.piece.quantity;
-      old.mass += v.mass * d.piece.quantity;
+      old.length += v.totalLength;
+      old.mass += v.totalMass;
       summary.set(key, old);
     }
   text(10, 10, "RESUMO GERAL DO AÇO - TODOS OS CONSOLOS", 3.5);
@@ -1198,15 +1091,10 @@ export function steelSummaryDrawing(
         number(v.mass, 2),
       ]),
   ];
-  rows.push([
-    "TOTAL",
-    "",
-    "",
-    number(
-      details.reduce((n, d) => n + d.totalMass, 0),
-      2,
-    ),
-  ]);
+  const totalMass = details.reduce((n, d) => n + d.totalMass, 0);
+  const totalVolume = details.reduce((n, d) => n + d.totalConcreteVolume, 0);
+  const steelRate = totalVolume > 0 ? totalMass / totalVolume : 0;
+  rows.push(["TOTAL", "", "", number(totalMass, 2)]);
   let y = 32;
   for (const row of rows) {
     const xs = [10, 50, 85, 165, 250];
@@ -1242,17 +1130,25 @@ export function steelSummaryDrawing(
   text(
     10,
     y + 8,
-    "Quantidades do projeto já multiplicadas. Sem perdas, emendas ou reserva de compra.",
+    `Concreto total: ${number(totalVolume, 3)} m³ · Taxa de aço do projeto: ${number(steelRate, 1)} kg/m³`,
     2.3,
   );
   text(
     10,
     y + 14,
+    "Quantidades do projeto já multiplicadas. Sem perdas, emendas ou reserva de compra.",
+    2.3,
+  );
+  text(
+    10,
+    y + 20,
     "Identificar cada barra pela peça e pela posição (ex.: C01/N1). Conferir as pendências de cada tipo.",
     2.3,
   );
-  return { width: 270, height: y + 25, entities, name: "Resumo geral do aço" };
-}
-export function segmentPoints(s: Segment) {
-  return samplePath({ segments: [s], length: 0, valid: true }, 20);
+  return {
+    width: Math.max(270, drawingBounds(entities).right + 10),
+    height: y + 31,
+    entities,
+    name: "Resumo geral do aço",
+  };
 }

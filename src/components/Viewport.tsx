@@ -15,6 +15,7 @@ import {
   MousePointer2,
 } from "lucide-react";
 import Drawing from "./Drawing";
+import { dimensionFieldLabel } from "../domain/dimensions";
 import { type GeometryKey, type Piece } from "../domain/model";
 
 export type ViewportHandle = {
@@ -37,15 +38,6 @@ export function zoomCamera(
     y: point.y - 300 - (point.y - 300 - camera.y) * ratio,
   };
 }
-const labels: Record<GeometryKey, string> = {
-  width: "Largura b",
-  height: "Altura h",
-  tipHeight: "Altura na ponta h₂",
-  length: "Comprimento L",
-  loadOffset: "Posição da carga a",
-  columnWidth: "Dimensão do pilar P",
-  cover: "Cobrimento c",
-};
 export default function Viewport({
   piece,
   section,
@@ -391,7 +383,9 @@ export default function Viewport({
           }}
           aria-label="Editar cota"
         >
-          <label htmlFor="dimension-value">{labels[editor.key]}</label>
+          <label htmlFor="dimension-value">
+            {dimensionFieldLabel(editor.key)}
+          </label>
           <div>
             <input
               ref={input}

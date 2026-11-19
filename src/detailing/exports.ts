@@ -1,12 +1,13 @@
 import type { Detail } from "./model";
 import {
   colors,
+  maxPdfPageSide,
   type Drawing,
   type Entity,
   type Layer,
-  segmentPoints,
 } from "./drawing";
-import { steelMass } from "./geometry";
+import { at, type Point } from "./geometry";
+import { drawingWidth, pdfText } from "./layout";
 import { steelLabel } from "../domain/steel";
 import { gammaNDecision, gammaNPolicyLabels } from "../domain/gammaN";
 
@@ -23,23 +24,32 @@ export const escapeXml = (s: string) =>
       })[c]!,
   );
 const n = (v: number) => Number(v.toFixed(5));
+// The sheet uses cm. Retain sub-micrometre parity with the editor's coordinates.
+const coordinate = (v: number) => Number(v.toFixed(9));
+const barWidth = (e: Entity) =>
+  e.type === "line" || e.type === "arc" ? e.thickness : undefined;
 export function entitySvg(e: Entity): string {
-  const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${e.layer === "ARMADURAS" ? 0.4 : e.layer === "FORMAS" ? 0.25 : 0.13}"`;
+  const thickness = barWidth(e);
+  const schematic = (e.type === "line" || e.type === "arc") && e.schematic;
+  const steelStyle =
+    thickness === undefined
+      ? ""
+      : ` stroke-linecap="butt" stroke-linejoin="round" ${schematic ? `data-schematic-bar="${escapeXml(schematic)}"` : `data-physical-diameter="${coordinate(thickness * 10)}"`}`;
+  const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${drawingWidth(e)}"${steelStyle}`;
   if (e.type === "line")
-    return `<line x1="${n(e.a.x)}" y1="${n(e.a.y)}" x2="${n(e.b.x)}" y2="${n(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
+    return `<line x1="${coordinate(e.a.x)}" y1="${coordinate(e.a.y)}" x2="${coordinate(e.b.x)}" y2="${coordinate(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   if (e.type === "arc") {
-    const a = {
-      x: e.center.x + e.radius * Math.cos(e.start),
-      y: e.center.y + e.radius * Math.sin(e.start),
-    };
-    const b = {
-      x: e.center.x + e.radius * Math.cos(e.start + e.sweep),
-      y: e.center.y + e.radius * Math.sin(e.start + e.sweep),
-    };
-    return `<path d="M${n(a.x)} ${n(a.y)} A${n(e.radius)} ${n(e.radius)} 0 ${Math.abs(e.sweep) > Math.PI ? 1 : 0} ${e.sweep > 0 ? 1 : 0} ${n(b.x)} ${n(b.y)}" ${common}/>`;
+    const a = at(e.center, e.radius, e.start);
+    const b = at(e.center, e.radius, e.start + e.sweep);
+    return `<path d="M${coordinate(a.x)} ${coordinate(a.y)} A${coordinate(e.radius)} ${coordinate(e.radius)} 0 ${Math.abs(e.sweep) > Math.PI ? 1 : 0} ${e.sweep > 0 ? 1 : 0} ${coordinate(b.x)} ${coordinate(b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   }
-  if (e.type === "circle")
-    return `<circle cx="${n(e.center.x)}" cy="${n(e.center.y)}" r="${n(e.radius)}" ${common}/>`;
+  if (e.type === "circle") {
+    const style =
+      e.layer === "ARMADURAS"
+        ? `class="detail-ARMADURAS" fill="${colors.ARMADURAS}" stroke="none" ${e.projectionCap ? 'data-projection-cap=""' : `data-physical-diameter="${coordinate(e.radius * 20)}"`}`
+        : common;
+    return `<circle cx="${coordinate(e.center.x)}" cy="${coordinate(e.center.y)}" r="${coordinate(e.radius)}" ${style}/>`;
+  }
   return `<text class="detail-${e.layer}" x="${n(e.at.x)}" y="${n(e.at.y)}" fill="${colors[e.layer]}" font-size="${e.size}" font-family="Arial,Helvetica,sans-serif"${e.align ? ` text-anchor="${e.align}"` : ""}${e.rotate ? ` transform="rotate(${e.rotate} ${n(e.at.x)} ${n(e.at.y)})"` : ""}>${escapeXml(e.text)}</text>`;
 }
 export const drawingSvg = (drawing: Drawing) =>
@@ -48,7 +58,7 @@ export const drawingSvg = (drawing: Drawing) =>
 export function drawingDxf(drawing: Drawing): string {
   const parts: (string | number)[] = [];
   const pair = (code: number, value: number | string) =>
-    parts.push(code, typeof value === "number" ? n(value) : value);
+    parts.push(code, typeof value === "number" ? coordinate(value) : value);
   const text = (value: string) =>
     value
       .replace(/[\r\n]+/g, " ")
@@ -129,19 +139,59 @@ export function drawingDxf(drawing: Drawing): string {
     pair(70, 0);
     pair(62, layerColors[layer]);
     pair(6, "CONTINUOUS");
-    pair(370, layer === "ARMADURAS" ? 35 : layer === "FORMAS" ? 25 : 13);
+    pair(370, layer === "ARMADURAS" ? 0 : layer === "FORMAS" ? 25 : 13);
   }
+  pair(0, "ENDTAB");
+  pair(0, "TABLE");
+  pair(2, "STYLE");
+  pair(5, "12");
+  pair(100, "AcDbSymbolTable");
+  pair(70, 1);
+  pair(0, "STYLE");
+  pair(100, "AcDbSymbolTableRecord");
+  pair(100, "AcDbTextStyleTableRecord");
+  pair(2, "Standard");
+  pair(70, 0);
+  pair(40, 0);
+  pair(41, 1);
+  pair(50, 0);
+  pair(71, 0);
+  pair(42, 2.5);
+  pair(3, "arial.ttf");
+  pair(4, "");
   pair(0, "ENDTAB");
   pair(0, "ENDSEC");
   pair(0, "SECTION");
   pair(2, "ENTITIES");
   for (const e of drawing.entities) {
-    const type = e.type.toUpperCase();
-    pair(0, type);
+    const thickness = barWidth(e);
+    if (
+      e.type === "line" &&
+      thickness !== undefined &&
+      Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) < 1e-10
+    )
+      continue;
+    pair(0, thickness === undefined ? e.type.toUpperCase() : "LWPOLYLINE");
     pair(100, "AcDbEntity");
     pair(8, e.layer);
+    if ((e.type === "line" || e.type === "arc") && e.dash) pair(6, "TRACEJADO");
+    if (thickness !== undefined && (e.type === "line" || e.type === "arc")) {
+      pair(100, "AcDbPolyline");
+      pair(90, 2);
+      pair(70, 0);
+      pair(43, thickness);
+      const a = e.type === "line" ? e.a : at(e.center, e.radius, e.start);
+      const b =
+        e.type === "line" ? e.b : at(e.center, e.radius, e.start + e.sweep);
+      pair(10, a.x);
+      pair(20, -a.y);
+      // CAD uses Y up, so the signed turn is the opposite of the sheet's.
+      if (e.type === "arc") pair(42, Math.tan(-e.sweep / 4));
+      pair(10, b.x);
+      pair(20, -b.y);
+      continue;
+    }
     if (e.type === "line") {
-      if (e.dash) pair(6, "TRACEJADO");
       pair(100, "AcDbLine");
       pair(10, e.a.x);
       pair(20, -e.a.y);
@@ -169,7 +219,8 @@ export function drawingDxf(drawing: Drawing): string {
       pair(10, e.at.x);
       pair(20, -e.at.y);
       pair(30, 0);
-      pair(40, e.size);
+      // DXF TEXT measures uppercase height. SVG and PDF size the full em.
+      pair(40, e.size * 0.718);
       pair(1, text(e.text));
       pair(50, -(e.rotate ?? 0));
       pair(7, "Standard");
@@ -187,14 +238,6 @@ export function drawingDxf(drawing: Drawing): string {
   pair(0, "EOF");
   return parts.join("\n") + "\n";
 }
-const pdfText = (s: string) =>
-  s
-    .replace(/[–—−]/g, "-")
-    .replace(/≥/g, ">=")
-    .replace(/Ø/g, "Ø")
-    .replace(/γ/g, "gamma")
-    .replace(/φ/g, "phi")
-    .replace(/·/g, " - ");
 export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
   const { jsPDF } = await import("jspdf");
   const { pdfIcon } = await import("../branding/pdfIcon");
@@ -202,10 +245,10 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
   const first = drawings[0];
   if (!first) throw new Error("Selecione ao menos um consolo.");
   const pageSize = (drawing: Drawing) =>
-    [Math.min(4500, drawing.width), Math.min(4500, drawing.height)] as [
-      number,
-      number,
-    ];
+    [
+      Math.min(maxPdfPageSide, drawing.width),
+      Math.min(maxPdfPageSide, drawing.height),
+    ] as [number, number];
   const doc = new jsPDF({
     unit: "mm",
     format: pageSize(first),
@@ -215,10 +258,41 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
   doc.setProperties({
     title: "ConsoloStruct - detalhamento de consolos",
     subject: "Dimensões em centímetros; detalhes soltos; escala nominal 1:10",
-    creator: "ConsoloStruct 0.7",
+    creator: "ConsoloStruct 0.8",
   });
+  doc.setLineCap("butt");
+  doc.setLineJoin("round");
+  // PDF has cubic paths. Small turns bound the error of a circular arc
+  // below the sheet's dimensional tolerance, including the cut circles.
+  const curve = (
+    center: Point,
+    radius: number,
+    start: number,
+    sweep: number,
+  ) => {
+    const count = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 8)));
+    const turn = sweep / count;
+    const tangent = (4 / 3) * radius * Math.tan(turn / 4);
+    let angle = start;
+    let a = at(center, radius, angle);
+    doc.moveTo(a.x, a.y);
+    for (let i = 1; i <= count; i++) {
+      const next = start + i * turn;
+      const b = at(center, radius, next);
+      doc.curveTo(
+        a.x - tangent * Math.sin(angle),
+        a.y + tangent * Math.cos(angle),
+        b.x + tangent * Math.sin(next),
+        b.y - tangent * Math.cos(next),
+        b.x,
+        b.y,
+      );
+      a = b;
+      angle = next;
+    }
+  };
   drawings.forEach((drawing, index) => {
-    if (drawing.width > 4500 || drawing.height > 4500)
+    if (drawing.width > maxPdfPageSide || drawing.height > maxPdfPageSide)
       throw new Error(
         "Este detalhe ultrapassa o tamanho máximo do PDF. Use DXF ou SVG para este arranjo.",
       );
@@ -239,17 +313,22 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
       const hex = colors[e.layer];
       doc.setDrawColor(hex);
       doc.setTextColor(hex);
-      doc.setLineWidth(
-        e.layer === "ARMADURAS" ? 0.4 : e.layer === "FORMAS" ? 0.25 : 0.13,
+      doc.setLineWidth(drawingWidth(e));
+      doc.setLineDashPattern(
+        (e.type === "line" || e.type === "arc") && e.dash ? [2, 1] : [],
+        0,
       );
-      doc.setLineDashPattern(e.type === "line" && e.dash ? [2, 1] : [], 0);
       if (e.type === "line") doc.line(e.a.x, e.a.y, e.b.x, e.b.y);
-      if (e.type === "circle")
-        doc.circle(e.center.x, e.center.y, e.radius, "S");
+      if (e.type === "circle") {
+        if (e.layer === "ARMADURAS") {
+          doc.setFillColor(hex);
+          curve(e.center, e.radius, 0, 2 * Math.PI);
+          doc.close().fill();
+        } else doc.circle(e.center.x, e.center.y, e.radius, "S");
+      }
       if (e.type === "arc") {
-        const pts = segmentPoints(e);
-        for (let i = 1; i < pts.length; i++)
-          doc.line(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
+        curve(e.center, e.radius, e.start, e.sweep);
+        doc.stroke();
       }
       if (e.type === "text") {
         doc.setFont("helvetica", "normal");
@@ -315,17 +394,11 @@ export function steelCsv(details: Detail[]): string {
         steelLabel(b.grade),
         b.diameter,
         b.quantity,
-        b.quantity * d.piece.quantity,
+        b.totalQuantity,
         (b.cutLength / 10).toFixed(1).replace(".", ","),
-        ((b.cutLength * b.quantity * d.piece.quantity) / 10)
-          .toFixed(1)
-          .replace(".", ","),
-        (steelMass(b.cutLength, b.diameter) * b.quantity)
-          .toFixed(3)
-          .replace(".", ","),
-        (steelMass(b.cutLength, b.diameter) * b.quantity * d.piece.quantity)
-          .toFixed(3)
-          .replace(".", ","),
+        (b.totalLength / 10).toFixed(1).replace(".", ","),
+        b.mass.toFixed(3).replace(".", ","),
+        b.totalMass.toFixed(3).replace(".", ","),
         d.issues.some((i) => i.severity === "error")
           ? "Pendências impeditivas"
           : "Para conferência",

@@ -5,10 +5,85 @@ import {
   exampleProject,
   fingerprint,
   geometryErrors,
+  newPiece,
   volume,
+  withTieDiameter,
 } from "../src/domain/model";
+import { defaultDesign } from "../src/domain/design";
 import { calculate } from "../src/domain/engine";
 import { toCsv, toDxf, toSvg } from "../src/lib/exports";
+import { shortFixture } from "./fixtures";
+
+describe("Padrão e compatibilidade da ancoragem de N1 (#67)", () => {
+  it("inicia novas peças com gancho no suporte e TS da mesma bitola sem resistência informada", () => {
+    expect(defaultDesign()).toMatchObject({
+      frontAnchor: "welded",
+      supportAnchor: "hook",
+      weldedBarDiameter: 20,
+      weldResistancePerBar: 0,
+    });
+    for (const p of [newPiece(1), ...exampleProject().pieces])
+      expect(p.design).toMatchObject({
+        frontAnchor: "welded",
+        supportAnchor: "hook",
+        weldedBarDiameter: p.rebar.tieDiameter,
+        weldResistancePerBar: 0,
+        weldSpecification: "",
+      });
+  });
+  it("acompanha bitolas iguais na edição e conserva uma bitola transversal divergente", () => {
+    const p = newPiece(1);
+    expect(withTieDiameter(p, 16).design.weldedBarDiameter).toBe(16);
+    const large = withTieDiameter(p, 40);
+    const saved = decodeProject(
+      JSON.stringify({ ...exampleProject(), pieces: [large] }),
+    );
+    expect(saved.pieces[0].design.weldedBarDiameter).toBe(40);
+    p.design.weldedBarDiameter = 16;
+    const edited = withTieDiameter(p, 25);
+    expect(edited.design.weldedBarDiameter).toBe(16);
+    expect(
+      calculate(edited).checks.find((c) => c.id === "weldDiameter")?.status,
+    ).toBe("fail");
+  });
+  it.each([
+    ["loop", "straight"],
+    ["loop", "hook"],
+    ["welded", "straight"],
+    ["welded", "hook"],
+  ] as const)(
+    "abre opções salvas %s / %s e recalcula com os dados gravados",
+    (frontAnchor, supportAnchor) => {
+      const p = shortFixture();
+      Object.assign(p.design, {
+        frontAnchor,
+        supportAnchor,
+        weldedBarDiameter: 12.5,
+        weldResistancePerBar: 125000,
+        weldSpecification: "Qualificação indicada no arquivo anterior",
+      });
+      const project = { ...exampleProject(), pieces: [p] };
+      const saved = decodeProject(JSON.stringify(project));
+      expect(saved).toEqual(project);
+      expect(calculate(saved.pieces[0])).toEqual(calculate(p));
+    },
+  );
+  it("migra o esquema 1 sem ancoragem para os padrões históricos", () => {
+    const p = shortFixture();
+    const { design: _, ...illustrative } = p;
+    const project = {
+      ...exampleProject(),
+      schemaVersion: 1,
+      pieces: [illustrative],
+    };
+    expect(
+      decodeProject(JSON.stringify(project)).pieces[0].design,
+    ).toMatchObject({
+      frontAnchor: "loop",
+      supportAnchor: "straight",
+    });
+  });
+});
 
 describe("Geometria em unidades canônicas", () => {
   it("calcula o volume de um prisma trapezoidal em m³", () => {

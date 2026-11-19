@@ -1,17 +1,18 @@
 import type { Piece } from "../domain/model";
+import { constructiveAnchorage } from "../domain/anchorage";
 import { tieLayout } from "../domain/engine";
+import { detailingLoopDiameter, loopNesting } from "../domain/loops";
 import { stirrupLayout } from "../domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../domain/profile";
+import { beamArrangementActive, beamBarPositions, beamTieBends } from "./beam";
 import {
   closedStirrup,
-  openStirrup,
   mandrelDiameter,
   roundedPath,
   samplePath,
   type BarPath,
-  type Point,
-  type Segment,
 } from "./geometry";
+import { translatePath } from "./rebarPlacement";
 
 type Point3 = [number, number, number];
 /** Minimum distance of two centre-line segments, including crossings between samples. */
@@ -58,18 +59,7 @@ export function pathsClash(first: Point3[], second: Point3[], minimum: number) {
 
 /** One physical source for N3/N4, in mm. Cross sections use (width, depth);
  * longitudinal bars use (length from support, depth). No resistance from N4. */
-export function translatePath(path: BarPath, x: number, y: number): BarPath {
-  const move = (p: Point) => ({ x: p.x + x, y: p.y + y });
-  return {
-    ...path,
-    segments: path.segments.map(
-      (s): Segment =>
-        s.type === "line"
-          ? { ...s, a: move(s.a), b: move(s.b) }
-          : { ...s, center: move(s.center) },
-    ),
-  };
-}
+export { translatePath };
 
 /** All intersections with a section x, including arcs; no assumed straight chord. */
 export function sectionDepths(path: BarPath, x: number): number[] {
@@ -107,13 +97,44 @@ export function sectionDepths(path: BarPath, x: number): number[] {
   return depths.sort((a, b) => a - b);
 }
 
-export function transverseGeometry(p: Piece, sectionX?: number) {
+export function firstLayerTiePositions(p: Piece): number[] {
+  const layout = tieLayout(p);
+  const firstRow = layout.rows.find((row) => row.count > 0);
+  if (!firstRow) return [];
+  const g = p.geometry,
+    q = p.design,
+    r = p.rebar;
+  if (!beamArrangementActive(p) && q.frontAnchor === "loop") {
+    // The loops as detailed (#64): same nesting and the same clamp to the
+    // narrowest width that holds the curve, so no leg is lost here either.
+    const nest = loopNesting(
+      p,
+      firstRow.count,
+      // The detailing numbers layers among the non-empty rows: this is the first.
+      detailingLoopDiameter(p, 0),
+      layout,
+    );
+    return nest.widths
+      .flatMap((w) => {
+        const inset = (g.width - Math.max(w, nest.required)) / 2;
+        return [inset, g.width - inset];
+      })
+      .sort((a, b) => a - b);
+  }
+  return beamBarPositions(p, firstRow.count, r.tieDiameter);
+}
+
+export function transverseGeometry(
+  p: Piece,
+  sectionX?: number,
+  placedTiePositions?: number[],
+  { concrete = concreteProfile(p), checkInterferences = true } = {},
+) {
   const g = p.geometry,
     r = p.rebar;
   const branches = r.stirrupBranches ?? 2,
     diameter = r.constructiveDiameter ?? 8;
-  const concrete = concreteProfile(p),
-    layout = stirrupLayout(p);
+  const layout = stirrupLayout(p);
   const mandrel = mandrelDiameter(
     r.stirrupDiameter,
     p.materials.fykTransverse,
@@ -123,51 +144,77 @@ export function transverseGeometry(p: Piece, sectionX?: number) {
   // Clearance includes the rounded internal corner, not just two infinite straight faces.
   const offset =
     g.cover + r.stirrupDiameter + diameter / 2 + radius * (1 - Math.SQRT1_2);
-  const positions = Array.from(
-    { length: branches },
-    (_, i) => offset + (i * (g.width - 2 * offset)) / (branches - 1),
-  );
-  // N3G is a separate physical piece, paired longitudinally with N3.
-  // Reuse the existing N3 free-spacing criterion; never reduce cover or bend radius.
+  const innerCornerOffset =
+    r.stirrupDiameter / 2 + diameter / 2 + radius * (1 - Math.SQRT1_2);
+  const tiePositions =
+    branches === 4 ? (placedTiePositions ?? firstLayerTiePositions(p)) : [];
+  const hasCentralTies = tiePositions.length >= 4;
+  let innerLeft = 0,
+    innerRight = 0;
+  let positions = [offset, offset + (g.width - 2 * offset)];
+  if (branches === 4 && hasCentralTies) {
+    const n = tiePositions.length;
+    const leftIdx = n % 2 === 0 ? n / 2 - 1 : (n - 3) / 2;
+    const rightIdx = n % 2 === 0 ? n / 2 : (n + 1) / 2;
+    innerLeft =
+      tiePositions[leftIdx] - r.tieDiameter / 2 - r.stirrupDiameter / 2;
+    innerRight =
+      tiePositions[rightIdx] + r.tieDiameter / 2 + r.stirrupDiameter / 2;
+    positions = [
+      offset,
+      innerLeft + innerCornerOffset,
+      innerRight - innerCornerOffset,
+      g.width - offset,
+    ];
+  }
+  // N3G is a closed internal stirrup juxtaposed to N3 (center-to-center = stirrupDiameter).
+  // Free spacing between consecutive N3/N3G pairs preserves the existing N3 criterion.
   const clearance = Math.max(20, r.stirrupDiameter, 1.2 * p.design.aggregate);
-  const innerShift = r.stirrupDiameter + clearance;
-  const sections = (
+  const innerShift = r.stirrupDiameter;
+  const assemblies = (
     sectionX === undefined ? layout.positions : [sectionX]
-  ).flatMap((x) => {
+  ).map((x) => {
     const width = g.width - 2 * layout.offset;
     const height =
       bottomOffsetDepth(concrete, x, layout.offset) - layout.offset;
     const outer = {
       x,
+      pairedWith: undefined,
       internal: false,
       width,
       height,
       offset: layout.offset,
       path: closedStirrup(width, height, r.stirrupDiameter, mandrel),
     };
-    if (branches === 2) return [outer];
-    const left = positions[1] - (offset - layout.offset),
-      right = positions[2] + (offset - layout.offset);
-    const w = right - left;
-    // Move toward the interior at either end; keep every outer station and its pitch.
-    const innerX = x <= g.length / 2 ? x + innerShift : x - innerShift;
+    // No central N1 pair means there is no physical width for N3G or its N4 bars.
+    if (branches === 2 || !hasCentralTies) return [outer];
+    const w = innerRight - innerLeft;
+    // Shift toward the tip (+x) except at the last station (-x), keeping monotonic order.
+    const innerX =
+      x < layout.positions.at(-1)! - 1e-6 ? x + innerShift : x - innerShift;
     const innerHeight =
       bottomOffsetDepth(concrete, innerX, layout.offset) - layout.offset;
-    const path = openStirrup(w, innerHeight, r.stirrupDiameter, mandrel);
-    return [
-      outer,
-      {
-        x: innerX,
-        internal: true,
-        width: w,
-        height: innerHeight,
-        offset: left,
-        path,
-      },
-    ];
+    const path = closedStirrup(w, innerHeight, r.stirrupDiameter, mandrel);
+    const inner = {
+      x: innerX,
+      pairedWith: x,
+      internal: true,
+      width: w,
+      height: innerHeight,
+      offset: innerLeft,
+      path,
+    };
+    return innerX < x ? [inner, outer] : [outer, inner];
   });
+  const sections = assemblies.flat();
   const problems: { code: string; message: string }[] = [];
   if (branches === 4 && sectionX === undefined) {
+    if (!hasCentralTies)
+      problems.push({
+        code: "transverse-inner-tie",
+        message:
+          "A 1ª camada de N1 não possui as duas barras centrais necessárias para definir a largura do estribo interno fechado N3G.",
+      });
     if (
       sections.some(
         (s) => s.x < layout.first - 1e-6 || s.x > layout.last + 1e-6,
@@ -178,30 +225,40 @@ export function transverseGeometry(p: Piece, sectionX?: number) {
         message:
           "O par N3/N3G não cabe entre as linhas de cobrimento longitudinal; reveja a geometria sem reduzir o afastamento, a bitola ou as dobras.",
       });
-    const sorted = [...sections].sort((a, b) => a.x - b.x);
-    if (sorted.slice(1).some((s, i) => s.x - sorted[i].x < innerShift - 1e-6))
+    const pairs = assemblies.map((assembly) => ({
+      minX: Math.min(...assembly.map((s) => s.x)),
+      maxX: Math.max(...assembly.map((s) => s.x)),
+    }));
+    if (
+      pairs
+        .slice(1)
+        .some(
+          (pair, i) =>
+            pair.minX - pairs[i].maxX < r.stirrupDiameter + clearance - 1e-6,
+        )
+    )
       problems.push({
         code: "transverse-clearance",
-        message: `Falta espaço longitudinal entre as peças de N3/N3G: manter folga livre de ${clearance.toLocaleString("pt-BR")} mm, além da bitola. Rever quantidade, agregado ou geometria; os quatro ramos calculados não validam este arranjo físico.`,
+        message: `Falta espaço longitudinal entre os pares de N3/N3G: manter folga livre de ${clearance.toLocaleString("pt-BR")} mm entre pares consecutivos. Rever quantidade, agregado ou geometria; os quatro ramos calculados não validam este arranjo físico.`,
       });
     const points = (s: (typeof sections)[number]) =>
       samplePath(translatePath(s.path, s.offset, layout.offset), 24).map(
         (pt) => [s.x, pt.x, pt.y] as Point3,
       );
-    for (let i = 0; i < sections.length; i++) {
+    for (let i = 0; checkInterferences && i < sections.length; i++) {
       if (
         sections
           .slice(i + 1)
           .some(
             (s) =>
-              Math.abs(s.x - sections[i].x) < r.stirrupDiameter &&
+              Math.abs(s.x - sections[i].x) < r.stirrupDiameter - 1e-6 &&
               pathsClash(points(sections[i]), points(s), r.stirrupDiameter),
           )
       ) {
         problems.push({
           code: "transverse-clash",
           message:
-            "Há interferência física entre estribos N3 e/ou grampos N3G, inclusive trechos inferiores e dobras. O arranjo de quatro ramos não pode ser fabricado assim.",
+            "Há interferência física entre estribos N3 e/ou estribos internos fechados N3G, inclusive trechos inferiores e dobras. O arranjo de quatro ramos não pode ser fabricado assim.",
         });
         break;
       }
@@ -223,12 +280,17 @@ export function transverseGeometry(p: Piece, sectionX?: number) {
   };
 }
 
-export function constructiveGeometry(p: Piece) {
+export function constructiveGeometry(
+  p: Piece,
+  t = transverseGeometry(p),
+  concrete = concreteProfile(p),
+) {
   const g = p.geometry,
-    r = p.rebar,
-    t = transverseGeometry(p);
-  const concrete = concreteProfile(p),
-    diameter = t.diameter;
+    r = p.rebar;
+  const diameter = t.diameter;
+  const axisCover = g.cover + diameter / 2;
+  const layout = tieLayout(p);
+  const support = constructiveAnchorage(p);
   const nominalMandrel = mandrelDiameter(diameter, p.materials.fykTransverse);
   const nominalRadius = (nominalMandrel + diameter) / 2;
   const radius =
@@ -241,8 +303,11 @@ export function constructiveGeometry(p: Piece) {
       m = (v.depth - a.depth) / (v.x - a.x);
     return { m, b: a.depth - m * a.x - t.offset * Math.sqrt(1 + m * m) };
   });
-  const end = g.length - g.cover - r.tieDiameter - diameter / 2;
-  const back = -(g.columnWidth - g.cover - diameter / 2);
+  const innerLayer = Math.min(layout.rows.length, r.tieCount) - 1;
+  const end = beamArrangementActive(p)
+    ? beamTieBends(p, innerLayer).front - r.tieDiameter / 2 - diameter / 2
+    : g.length - axisCover;
+  const back = -support.adopted;
   const corners = lines
     .slice(1)
     .map((line, i) => {
@@ -259,11 +324,9 @@ export function constructiveGeometry(p: Piece) {
       ?.m ?? lines.at(-1)!.m;
   const tangent = radius * Math.tan((Math.PI / 2 + Math.atan(lastSlope)) / 2);
   const ceiling =
-    tieLayout(p).maxDepth +
-    r.tieDiameter / 2 +
-    diameter / 2 +
-    Math.max(20, diameter);
-  const tail = Math.max(8 * diameter, bottom(end) - tangent - ceiling);
+    layout.maxDepth + r.tieDiameter / 2 + diameter / 2 + Math.max(20, diameter);
+  const tailAvailable = Math.max(0, bottom(end) - tangent - ceiling);
+  const tail = Math.max(8 * diameter, tailAvailable);
   const vertices = [
     { x: back, y: bottom(0) },
     { x: 0, y: bottom(0) },
@@ -273,7 +336,7 @@ export function constructiveGeometry(p: Piece) {
   ];
   const path = roundedPath(vertices, radius);
   const problems: string[] = [];
-  if (g.width - 2 * t.offset <= (t.branches - 1) * diameter)
+  if (g.width - 2 * t.offset <= (t.positions.length - 1) * diameter)
     problems.push("As barras N4 não cabem transversalmente dentro de N3.");
   if (bottom(end) - tangent - tail < ceiling - 1e-6)
     problems.push(
@@ -283,31 +346,35 @@ export function constructiveGeometry(p: Piece) {
     problems.push(
       "N4 não comporta o percurso, o mandril e as dobras no contorno informado.",
     );
-  for (const pt of samplePath(path, 32)) {
-    if (
-      pt.y < g.cover + diameter / 2 - 1e-6 ||
-      pt.x < -g.columnWidth + g.cover + diameter / 2 - 1e-6 ||
-      pt.x > g.length - g.cover - diameter / 2 + 1e-6 ||
-      pt.y >
-        (pt.x < 0
-          ? g.height - g.cover - diameter / 2
-          : bottomOffsetDepth(concrete, pt.x, g.cover + diameter / 2)) +
-          1e-6
-    ) {
-      problems.push(
-        "O percurso de N4 invade o cobrimento; rever geometria sem reduzir bitola, cobrimento ou dobra.",
-      );
-      break;
-    }
-  }
+  if (
+    t.positions.some(
+      (y) => y < axisCover - 1e-6 || y > g.width - axisCover + 1e-6,
+    ) ||
+    samplePath(path, 32).some(
+      (pt) =>
+        pt.y < axisCover - 1e-6 ||
+        pt.x < -g.columnWidth + axisCover - 1e-6 ||
+        pt.x > g.length - axisCover + 1e-6 ||
+        pt.y >
+          (pt.x < 0
+            ? g.height - axisCover
+            : bottomOffsetDepth(concrete, pt.x, axisCover)) +
+            1e-6,
+    )
+  )
+    problems.push(
+      "O percurso de N4 invade o cobrimento; rever geometria sem reduzir bitola, cobrimento ou dobra.",
+    );
   return {
     ...t,
+    support,
     path,
     vertices,
     end,
     back,
     ceiling,
     tail,
+    tailAvailable,
     radius,
     mandrel: 2 * radius - diameter,
     problems,
@@ -320,14 +387,9 @@ export function projectedConstructiveSection(
   sections: ReturnType<typeof transverseGeometry>["sections"],
 ) {
   return constructive.positions.flatMap((v, i) => {
-    const plane =
-      sections[
-        constructive.branches === 4 &&
-        i > 0 &&
-        i < constructive.positions.length - 1
-          ? 1
-          : 0
-      ];
+    const internal = i > 0 && i < constructive.positions.length - 1;
+    const plane = sections.find((s) => s.internal === internal);
+    if (!plane) return [];
     return sectionDepths(constructive.path, plane.x).map((depth) => ({
       v,
       depth,

@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import * as THREE from "three";
 import { newPiece, fingerprint } from "../src/domain/model";
-import { cantileverFixture } from "./fixtures";
+import { cantileverFixture, shortFixture } from "./fixtures";
+import { buildDetail } from "../src/detailing/model";
+import { partPoints3 } from "../src/detailing/rebarPlacement";
+import { tieLayout } from "../src/domain/engine";
+import { upperStitchLayout } from "../src/domain/theory";
 import { buildSceneModel } from "../src/visualization/model3d";
 import {
   corbelGeometry,
@@ -39,7 +43,7 @@ describe("Geometria técnica 3D", () => {
     expect(meshVolume(g)).toBeCloseTo(33750000, 3);
     g.dispose();
   });
-  it("mantém as seis cotas ligadas aos valores atuais da peça", () => {
+  it("mantém as seis cotas editáveis e H1 nas referências da elevação", () => {
     const p = newPiece(1);
     p.geometry.length = 325;
     const m = buildSceneModel(p);
@@ -47,6 +51,7 @@ describe("Geometria técnica 3D", () => {
       [
         "columnWidth",
         "height",
+        "heightDifference",
         "length",
         "loadOffset",
         "tipHeight",
@@ -56,7 +61,38 @@ describe("Geometria técnica 3D", () => {
     expect(m.dimensions.find((d) => d.id === "length")!.label).toBe(
       "L = 32,5 cm",
     );
-    for (const d of m.dimensions) expect(d.value).toBe(p.geometry[d.id]);
+    for (const d of m.dimensions)
+      expect(d.value).toBe(
+        d.id === "heightDifference"
+          ? p.geometry.height - p.geometry.tipHeight
+          : p.geometry[d.id],
+      );
+    const length = m.dimensions.find((d) => d.id === "length")!;
+    const a = m.dimensions.find((d) => d.id === "loadOffset")!;
+    const pillar = m.dimensions.find((d) => d.id === "columnWidth")!;
+    const h = m.dimensions.find((d) => d.id === "height")!;
+    const h2 = m.dimensions.find((d) => d.id === "tipHeight")!;
+    const h1 = m.dimensions.find((d) => d.id === "heightDifference")!;
+    expect(a.label).toBe("A = 12,5 cm");
+    expect(a.from[2]).toBeGreaterThan(0);
+    expect(pillar.from[2]).toBe(a.from[2]);
+    expect(a.witnesses[1][0].slice(0, 2)).toEqual([125, 0]);
+    expect(length.from[2]).toBeLessThan(-p.geometry.height);
+    expect(length.from[2]).toBe(length.to[2]);
+    expect(length.witnesses.map(([p]) => [p[0], p[2]])).toEqual([
+      [0, -400],
+      [325, -200],
+    ]);
+    expect(h1.label).toBe("H1 = 20,0 cm");
+    expect(h1.from).toEqual(h2.to);
+    expect(h1.to[2]).toBe(h.to[2]);
+    expect(h1.to[0]).toBeLessThan(h.to[0]);
+    expect(h1.witnesses[0][0]).toEqual([325, -150, -200]);
+    expect(h1.witnesses[1][0]).toEqual([0, -150, -400]);
+    p.geometry.tipHeight = p.geometry.height;
+    expect(buildSceneModel(p).dimensions.map((d) => d.id)).not.toContain(
+      "heightDifference",
+    );
   });
   it("cargas características conservam valor, direção e altura de aplicação", () => {
     const p = newPiece(1),
@@ -91,14 +127,87 @@ describe("Geometria técnica 3D", () => {
     const p = newPiece(1);
     p.rebar.tieCount = 6;
     p.design.tieLayers = 2;
+    p.design.frontAnchor = "welded";
+    p.design.supportAnchor = "straight";
     const m = buildSceneModel(p),
       ties = m.steel.filter((b) => b.id === "N1");
     expect(ties).toHaveLength(6);
     expect(ties.slice(0, 3).every((b) => b.points[0][2] === -41.3)).toBe(true);
     expect(ties.slice(3).every((b) => b.points[0][2] === -81.3)).toBe(true);
-    for (const path of m.steel.filter((b) => b.id === "N2"))
-      expect(path.points[0]).toEqual(path.points.at(-1));
+    // #63: loops are the detailed loops (one per pair of legs), not straight
+    // axes per leg; 3 legs per layer leave one loop per layer, as detailed.
+    p.design.frontAnchor = "loop";
+    const loops = buildSceneModel(p).steel.filter((b) => b.id === "N1");
+    const detailed = buildDetail(p).bars.filter((b) => b.family === "tie");
+    expect(loops).toHaveLength(
+      detailed.reduce((n, bar) => n + bar.quantity, 0),
+    );
+    expect(loops.map((b) => b.points[0][2])).toEqual([-41.3, -81.3]);
+    for (const path of m.steel.filter((b) => b.id === "N2")) {
+      const start = path.points[0];
+      const end = path.points.at(-1)!;
+      // The two 135° closing tails end one centre-line diameter apart in
+      // the nominal projection. A closed rectangle drops both tails.
+      expect(Math.hypot(start[0] - end[0], start[1] - end[1])).toBeCloseTo(
+        4 * path.diameter,
+        8,
+      );
+    }
   });
+  it.each(["loop", "welded"] as const)(
+    "representa cada ramo de N1 (%s) com a mesma curva e ponta nas duas camadas",
+    (frontAnchor) => {
+      const p = shortFixture();
+      p.design.frontAnchor = frontAnchor;
+      p.design.tieLayers = 2;
+      p.design.supportAnchor = "hook";
+      p.detailing.supportHookProjection = 600;
+      p.detailing.supportHookTail = 128;
+      const instances = buildDetail(p)
+        .bars.filter((bar) => bar.family === "tie")
+        .flatMap((bar) => bar.instances)
+        .sort((a, b) => a.order - b.order);
+      const parts = instances.flatMap((instance) => instance.parts);
+      const ties = buildSceneModel(p).steel.filter((bar) => bar.id === "N1");
+      expect(ties).toHaveLength(frontAnchor === "loop" ? 6 : 4);
+      const tailStartDepths: number[] = [];
+      const tailAxes: number[] = [];
+      for (const [i, part] of parts.entries()) {
+        expect(ties[i].points).toEqual(
+          partPoints3(part).map(({ x, y, z }) => [
+            x,
+            y - p.geometry.width / 2,
+            -z,
+          ]),
+        );
+        if (part.plane !== "xz") continue;
+        const points = ties[i].points;
+        expect(points.length).toBeGreaterThan(24);
+        const [bottom, top] =
+          frontAnchor === "loop"
+            ? points.slice(-2).reverse()
+            : points.slice(0, 2);
+        expect(top[0]).toBeCloseTo(bottom[0], 9);
+        expect(top[1]).toBe(bottom[1]);
+        expect(top[2] - bottom[2]).toBeCloseTo(128, 8);
+        tailStartDepths.push(top[2]);
+        tailAxes.push(bottom[0]);
+      }
+      expect(tailStartDepths).toHaveLength(4);
+      expect(new Set(tailStartDepths).size).toBe(2);
+      expect(tailAxes).toEqual([-600, -600, -564, -564]);
+      p.design.supportAnchor = "straight";
+      const straight = buildSceneModel(p).steel.filter(
+        (bar) => bar.id === "N1",
+      );
+      expect(straight).toHaveLength(frontAnchor === "loop" ? 2 : 4);
+      expect(
+        straight.every(({ points }) =>
+          points.every((pt) => pt[2] === points[0][2]),
+        ),
+      ).toBe(true);
+    },
+  );
   it("gera materiais e grupos finitos nas duas opções de renderização", () => {
     const m = buildSceneModel(newPiece(1));
     for (const lightweight of [false, true]) {
@@ -158,4 +267,28 @@ describe("Viga em balanço (1 < a/d ≤ 2)", () => {
     disposeGroup(group);
     g.dispose();
   });
+});
+describe("Costura inferior N2I (#50)", () => {
+  it.each([
+    ["peça padrão", () => newPiece(1)],
+    ["shortFixture", () => shortFixture()],
+  ])(
+    "alinha as profundidades da N2I no 3D com buildDetail (%s)",
+    (_label, make) => {
+      const p = make();
+      const detailLower = buildDetail(p)
+        .bars.filter((bar) => bar.family === "lower")
+        .map((bar) => bar.locations[0].z);
+      const upperCount = upperStitchLayout(p, tieLayout(p)).levels.length;
+      const sceneLower = buildSceneModel(p)
+        .steel.filter((bar) => bar.id === "N2")
+        .slice(upperCount)
+        .map((bar) => -bar.points[0][2]);
+      expect(detailLower.length).toBeGreaterThan(0);
+      expect(sceneLower).toHaveLength(detailLower.length);
+      sceneLower.forEach((depth, i) => {
+        expect(Math.abs(depth - detailLower[i])).toBeLessThan(1e-9);
+      });
+    },
+  );
 });

@@ -1,4 +1,5 @@
 import DesignPanel from "./DesignPanel";
+import { dimensionMetadata } from "../domain/dimensions";
 import { ribbonCommands } from "./ribbonCommands";
 import { coefficientText } from "../domain/materialSafety";
 import {
@@ -11,7 +12,8 @@ import {
   steelLabel,
   steelOptionLabel,
 } from "../domain/steel";
-import { memo, useId } from "react";
+import { memo, useId, useMemo } from "react";
+import { rebarModel } from "../detailing/rebarModel";
 import {
   ChevronDown,
   SlidersHorizontal,
@@ -26,6 +28,7 @@ import { NumericField } from "./NumericField";
 import {
   area,
   number,
+  withTieDiameter,
   type Piece,
   type InspectorTab,
   type GeometryKey,
@@ -52,6 +55,13 @@ function Inspector({
   const steelId = useId();
   const secondarySteelId = useId();
   const steel = tieSteelClassOf(p.materials.fyk);
+  // N4 bars as placed by the single reinforcement source.
+  const n4Count = useMemo(
+    () =>
+      rebarModel(p).bars.find((bar) => bar.family === "constructive")
+        ?.quantity ?? 0,
+    [p],
+  );
   const tabs = [
     { id: "geometry", label: "Geometria", icon: Ruler },
     { id: "loads", label: "Ações", icon: ArrowDownToLine },
@@ -124,30 +134,25 @@ function Inspector({
             <div className="fields-grid">
               {(
                 [
-                  { key: "width", label: "Largura", symbol: "b" },
-                  { key: "height", label: "Altura no pilar", symbol: "h" },
-                  { key: "tipHeight", label: "Altura na ponta", symbol: "h₂" },
-                  { key: "length", label: "Comprimento", symbol: "L" },
-                  { key: "loadOffset", label: "Posição da carga", symbol: "a" },
-                  {
-                    key: "columnWidth",
-                    label: "Dimensão do pilar",
-                    symbol: "P",
-                  },
+                  "width",
+                  "height",
+                  "tipHeight",
+                  "length",
+                  "loadOffset",
+                  "columnWidth",
                 ] as const
-              ).map((f) => (
+              ).map((key) => (
                 <NumericField
-                  key={f.key}
-                  label={f.label}
-                  symbol={f.symbol}
+                  key={key}
+                  {...dimensionMetadata[key]}
                   unit="cm"
-                  value={p.geometry[f.key]}
+                  value={p.geometry[key]}
                   factor={10}
                   min={5}
                   max={6000}
-                  onFocus={() => onFocus(f.key)}
+                  onFocus={() => onFocus(key)}
                   onChange={(v) =>
-                    update({ ...p, geometry: { ...p.geometry, [f.key]: v } })
+                    update({ ...p, geometry: { ...p.geometry, [key]: v } })
                   }
                 />
               ))}
@@ -155,7 +160,7 @@ function Inspector({
             <div className="section-label section-spaced">COBRIMENTO</div>
             <NumericField
               label="Cobrimento nominal informado"
-              symbol="c"
+              symbol={dimensionMetadata.cover.symbol}
               unit="cm"
               value={p.geometry.cover}
               factor={10}
@@ -393,15 +398,17 @@ function Inspector({
                     <select
                       aria-label={`Diâmetro ${b.id}`}
                       value={p.rebar[b.diameter]}
-                      onChange={(e) =>
-                        update({
-                          ...p,
-                          rebar: {
-                            ...p.rebar,
-                            [b.diameter]: Number(e.target.value),
-                          },
-                        })
-                      }
+                      onChange={(e) => {
+                        const diameter = Number(e.target.value);
+                        update(
+                          b.diameter === "tieDiameter"
+                            ? withTieDiameter(p, diameter)
+                            : {
+                                ...p,
+                                rebar: { ...p.rebar, [b.diameter]: diameter },
+                              },
+                        );
+                      }}
                     >
                       {[5, 6.3, 8, 10, 12.5, 16, 20, 25, 32, 40]
                         .filter((d) => (b.id === "N1" ? d >= 6.3 : d <= 25))
@@ -433,7 +440,7 @@ function Inspector({
                     >
                       <option value={2}>2 · estribo externo</option>
                       <option value={4}>
-                        4 · estribo externo + grampo interno
+                        4 · estribo externo + estribo interno fechado
                       </option>
                     </select>
                   </label>
@@ -505,7 +512,7 @@ function Inspector({
               </label>
               <div className="provided-area">
                 <span>Quantidade derivada de N3</span>
-                <strong>{p.rebar.stirrupBranches} barras</strong>
+                <strong>{n4Count} barras</strong>
               </div>
               <p className="field-help">
                 Uma barra por vértice inferior interno de N3. Acompanha a face

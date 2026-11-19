@@ -9,6 +9,7 @@ import {
   exampleProject,
   fingerprint,
   newPiece,
+  number,
   rebarSchema,
 } from "../src/domain/model";
 import { calculate, type CalculationResult } from "../src/domain/engine";
@@ -16,6 +17,7 @@ import { suggestReinforcement } from "../src/domain/autodesign";
 import { stirrupLayout } from "../src/domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../src/domain/profile";
 import { buildDetail } from "../src/detailing/model";
+import { beamLayout } from "../src/detailing/beam";
 import {
   samplePath,
   pathLength,
@@ -40,28 +42,32 @@ import { toCalculationJson, toCsv, toPdf } from "../src/lib/exports";
 import { buildSceneModel } from "../src/visualization/model3d";
 import Drawing from "../src/components/Drawing";
 import { cantileverFixture, shortFixture } from "./fixtures";
+import { legacyAnchorageContract } from "./reference/legacy-anchorage-contract";
 
-const numericResult = (r: CalculationResult) => ({
-  status: r.status,
-  values: r.values,
-  checks: r.checks.map(({ id, status, demand, capacity }) => ({
-    id,
-    status,
-    demand,
-    capacity,
-  })),
-  combinations: r.combinations.map((c) => ({
-    method: c.method,
-    values: c.values,
-    status: c.status,
-    checks: c.checks.map(({ id, status, demand, capacity }) => ({
+const numericResult = (result: CalculationResult) => {
+  const r = legacyAnchorageContract(result);
+  return {
+    status: r.status,
+    values: r.values,
+    checks: r.checks.map(({ id, status, demand, capacity }) => ({
       id,
       status,
       demand,
       capacity,
     })),
-  })),
-});
+    combinations: r.combinations.map((c) => ({
+      method: c.method,
+      values: c.values,
+      status: c.status,
+      checks: c.checks.map(({ id, status, demand, capacity }) => ({
+        id,
+        status,
+        demand,
+        capacity,
+      })),
+    })),
+  };
+};
 
 describe("N3/N4 — esquema e migração", () => {
   it("inicia no esquema 6, com dois ramos e N4 Ø8 obrigatória", () => {
@@ -149,7 +155,7 @@ describe("N3/N4 — cálculo e sugestão", () => {
     ],
     [
       "beam",
-      "fc70d81dbe1978079e24afef3f84f1cbea662b205d3117ab9ad3e37f85c7f0e8",
+      "d785bd21fdf354e030acbfe103756bf28f3d455dd91d884ceeae70da3da7cb14",
     ],
   ] as const)(
     "preserva todos os números e estados anteriores — %s",
@@ -204,7 +210,12 @@ describe("N3/N4 — cálculo e sugestão", () => {
     "usa os ramos na sugestão sem alterar N4 ou demandas",
     (fixture) => {
       const input = fixture();
-      if (fixture === cantileverFixture) input.geometry.length = 700;
+      if (fixture === cantileverFixture)
+        Object.assign(input.geometry, {
+          length: 700,
+          width: 400,
+          tipHeight: 275,
+        });
       input.rebar.stirrupBranches = 4;
       input.rebar.constructiveDiameter = 12.5;
       const proposal = suggestReinforcement(input);
@@ -222,7 +233,7 @@ describe("N3/N4 — cálculo e sugestão", () => {
       expect(input.rebar.stirrupCount).toBe(5);
     },
   );
-  it("a bitola isolada de N4 não muda resultados resistentes ou sugestão", () => {
+  it("a bitola isolada de N4 preserva a resistência e passa a restringir a sugestão", () => {
     const p = shortFixture(),
       before = calculate(p),
       suggestion = suggestReinforcement(p);
@@ -230,13 +241,11 @@ describe("N3/N4 — cálculo e sugestão", () => {
     const after = calculate(p),
       other = suggestReinforcement(p);
     expect(numericResult(after)).toEqual(numericResult(before));
-    expect(other.piece.rebar).toEqual({
-      ...suggestion.piece.rebar,
-      constructiveDiameter: 25,
-    });
-    expect(numericResult(other.result)).toEqual(
-      numericResult(suggestion.result),
-    );
+    expect(suggestion.changed).toBe(true);
+    expect(other.changed).toBe(false);
+    expect(
+      other.result.checks.find((c) => c.id === "anchorN4Tail")?.status,
+    ).toBe("fail");
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
   it("preserva fendilhamento/suspensão nos campos e áreas exclusivos", () => {
@@ -268,6 +277,85 @@ describe("N3/N4 — cálculo e sugestão", () => {
 });
 
 describe("N3/N4 — geometria física e saídas", () => {
+  it.each([10, 20, 25])(
+    "mantém cobrimento frontal de 25 mm no consolo convencional com N1 Ø%s",
+    (tieDiameter) => {
+      const p = newPiece(1);
+      p.rebar.tieDiameter = tieDiameter;
+      const n4 = constructiveGeometry(p);
+      const maxX = Math.max(...samplePath(n4.path, 32).map((pt) => pt.x));
+      expect(n4.end).toBe(221);
+      expect(p.geometry.length - maxX - n4.diameter / 2).toBeCloseTo(
+        p.geometry.cover,
+        9,
+      );
+      for (const y of n4.positions)
+        expect(
+          Math.min(y, p.geometry.width - y) - n4.diameter / 2,
+        ).toBeGreaterThanOrEqual(p.geometry.cover);
+      expect(n4.problems).toEqual([]);
+    },
+  );
+  it("reproduz a referência da ponta e dimensiona o trecho no suporte conforme a #65", () => {
+    const p = newPiece(1);
+    const n4 = constructiveGeometry(p);
+    const detail = buildDetail(p);
+    const bar = detail.bars.find((b) => b.family === "constructive")!;
+    expect(n4.end).toBeCloseTo(221, 2);
+    expect(n4.vertices.at(-2)!.y).toBeCloseTo(173.27, 2);
+    expect(n4.tail).toBeCloseTo(76.43, 2);
+    // The issue's reference uses a 271 mm straight penetration to isolate the tip.
+    const referenceLength = n4.path.length + (271 + n4.back);
+    expect(Math.abs(referenceLength - 639.78)).toBeLessThan(0.05);
+    expect(Math.ceil(referenceLength - 1e-7)).toBe(640);
+    expect(-n4.back).toBe(detail.result.values.anchorN4_adopted);
+    expect(-n4.back).toBeCloseTo(114.37, 2);
+    expect(bar.exactLength).toBeCloseTo(483.14546, 4);
+    expect(bar.cutLength).toBe(484);
+    expect(bar.mass).toBeCloseTo(2 * steelMass(484, 8), 10);
+  });
+  it("posiciona N4 pelo eixo da perna interna real de N1 no modo viga", () => {
+    const p = shortFixture();
+    p.detailing.barArrangement = "beam";
+    p.design.tieLayers = 2;
+    p.geometry.tipHeight = 420;
+    const inner = beamLayout(p).top.at(-1)!;
+    const n4 = constructiveGeometry(p);
+    expect(inner.layer).toBe(1);
+    expect(n4.end).toBeCloseTo(
+      inner.vertices.at(-1)!.x - (inner.diameter + n4.diameter) / 2,
+      10,
+    );
+    expect(n4.end).toBe(369);
+    const detail = buildDetail(p);
+    expect(detail.issues).toContainEqual(
+      expect.objectContaining({
+        code: "constructive-positive-clash",
+        severity: "error",
+      }),
+    );
+    p.design.excessConcrete = "remove";
+    expect(constructiveGeometry(p).end).toBe(421);
+  });
+  it("sinaliza interferência com TS na ponta baixa sem encurtar a ponta mínima de N4", () => {
+    const p = newPiece(1);
+    p.design.frontAnchor = "welded";
+    p.design.weldedBarDiameter = 20;
+    const reference = buildDetail(p);
+    expect(
+      reference.issues.some((i) => i.code === "constructive-welded-clash"),
+    ).toBe(false);
+    p.geometry.tipHeight = 125;
+    const n4 = constructiveGeometry(p);
+    expect(n4.tail).toBe(64);
+    expect(n4.tailAvailable).toBeLessThan(64);
+    expect(buildDetail(p).issues).toContainEqual(
+      expect.objectContaining({
+        code: "constructive-welded-clash",
+        severity: "error",
+      }),
+    );
+  });
   it.each([6.3, 10, 16])(
     "grampo Ø%s conserva duas pontas retas completas e o desenvolvimento",
     (diameter) => {
@@ -464,7 +552,7 @@ describe("N3/N4 — geometria física e saídas", () => {
   it("detecta invasão de N1 inclusive na perna de ancoragem no suporte", () => {
     const p = shortFixture();
     p.design.supportAnchor = "hook";
-    p.detailing.supportHookProjection = 250;
+    p.detailing.supportHookProjection = 95;
     p.detailing.supportHookTail = 600;
     expect(buildDetail(p).issues).toContainEqual(
       expect.objectContaining({
@@ -486,12 +574,12 @@ describe("N3/N4 — geometria física e saídas", () => {
       ),
     ).toBe(true);
   });
-  it("detecta colisão no arco de N1 mesmo sem perna reta no gancho", () => {
+  it("detecta colisão no arco de N1 com uma ponta reta desprezível", () => {
     const p = shortFixture();
     Object.assign(p.geometry, { height: 110, tipHeight: 100 });
     p.design.supportAnchor = "hook";
-    p.detailing.supportHookProjection = 250;
-    p.detailing.supportHookTail = 0;
+    p.detailing.supportHookProjection = 95;
+    p.detailing.supportHookTail = 0.01;
     expect(buildDetail(p).issues).toContainEqual(
       expect.objectContaining({
         code: "constructive-tie-clash",
@@ -535,7 +623,7 @@ describe("N3/N4 — geometria física e saídas", () => {
       expect(drawingDxf(drawing)).toContain("N4");
       if (branches === 4) {
         expect(csv).toContain('"N3G-1"');
-        expect(drawingSvg(drawing)).toContain("Grampo interno");
+        expect(drawingSvg(drawing)).toContain("Estribo interno fechado");
       }
       const pdf = await drawingPdf([drawing]);
       const streams = [
@@ -552,8 +640,14 @@ describe("N3/N4 — geometria física e saídas", () => {
         })
         .join("\n");
       expect(streams).toContain("N4");
-      expect(new TextDecoder().decode(await toPdf(project, p))).toContain(
-        "N4 construtiva",
+      const developed = number(bar.exactLength / 10, 3);
+      const cut = number(bar.cutLength / 10, 1);
+      const calculationPdf = Buffer.from(await toPdf(project, p)).toString(
+        "latin1",
+      );
+      expect(calculationPdf).toContain("N4 construtiva");
+      expect(calculationPdf).toContain(
+        `N4 desenvolvida = ${developed} cm. C unitario = ${cut} cm.`,
       );
       const audit = JSON.parse(toCalculationJson(project, p));
       expect(audit.input.rebar).toMatchObject({
@@ -564,7 +658,16 @@ describe("N3/N4 — geometria física e saídas", () => {
         area(branches * 5, 6.3),
         10,
       );
-      expect(toCsv(project)).toContain("N4 massa total");
+      const [, headers, values] = toCsv(project)
+        .split("\r\n")
+        .map((line) => line.split(";"));
+      expect(
+        values[headers.indexOf('"N4 comprimento desenvolvido unitario (cm)"')],
+      ).toBe(`"${developed}"`);
+      expect(values[headers.indexOf('"N4 C unitario (cm)"')]).toBe(`"${cut}"`);
+      expect(values[headers.indexOf('"N4 massa total (kg)"')]).toBe(
+        `"${number(bar.totalMass, 3)}"`,
+      );
       expect(d.totalMass).toBeCloseTo(d.mass * 3, 10);
     },
   );

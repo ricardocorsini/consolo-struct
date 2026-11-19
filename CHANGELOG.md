@@ -4,9 +4,41 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
-## 0.8.0 · 2026-11-16
+## 0.8.0
 
-Reúne as mudanças integradas à master desde a 0.7.1. Instaladores Windows/Linux e notas usadas no manifesto assinado seguem o publicador central. [Notas de publicação](.github/release-notes/v0.8.0.md).
+Reúne as mudanças integradas desde a 0.7.1, incluindo a revisão de ancoragem, geometria das armaduras e detalhamento da issue #62. [Notas de publicação](.github/release-notes/v0.8.0.md).
+
+- Organiza cotas, chamadas e legendas na prancha com caixas delimitadoras calculadas (issue #73). Cotas estreitas deslocam o rótulo para fora do vão, a planta reúne as marcas numa chamada por camada e os blocos da prancha se ajustam à área ocupada. A tela e as saídas SVG, DXF e PDF usam a mesma composição.
+
+- Integra as formas de dobramento à Relação do Aço (issue #70). Cada posição traz o esquema proporcional do eixo da barra, com trechos retos, dobras, mandris e notas. Alças com gancho no suporte incluem sua vista lateral cotada. A tabela compacta acompanha a prancha em SVG, DXF e PDF. O CSV mantém os mesmos campos e valores.
+
+- Representa bitolas, eixos e dobras das armaduras em escala geométrica nas vistas e na prancha (issue #69). Cortes usam círculos de raio físico. As barras chegam ao SVG e ao PDF com a largura da bitola e ao DXF em cm com polilinhas largas e arcos editáveis.
+
+- A elevação desenha o arco exato do gancho de N1 a partir da geometria usada na prancha e no 3D (issue #68). Os ganchos são aninhados com o passo do modo viga nas camadas ocupadas, com projeção e comprimento de corte por camada. A memória registra qual camada limita cada verificação de ancoragem.
+
+- Peças novas adotam N1 com barra transversal soldada de mesma bitola na ponta e gancho de 90° no suporte (issue #67). O gancho faz parte da forma de fabricação. A edição sincroniza as bitolas quando iguais, e a sugestão recalcula TS em cada candidato soldado. Os arquivos salvos preservam a ancoragem registrada.
+
+- Corrige o cobrimento frontal de N4 (issue #66). No consolo convencional, a face externa da barra fica à distância de cobrimento da ponta. No modo viga, a dobra se posiciona a partir da perna frontal interna de N1. As vistas, a prancha e o quadro usam o percurso atualizado. O CSV geral e o PDF da memória exibem o comprimento desenvolvido e o de corte.
+
+- Motor 0.6.0 (issue #65). Verifica a ancoragem das famílias N1, N2, N2I, N3/N3G, N4 e P1 e registra a conferência de N5, N6 e PINO. Para N2, N2I e N4, usa o limite no eixo da barra e mostra também a distância nominal até o cobrimento. O modelo das barras, a memória, o PDF, o CSV geral e o cálculo auditável usam os comprimentos verificados. O valor zero ativa a ancoragem automática nos campos de gancho de N1 e penetração das costuras. Os valores explícitos nos projetos salvos continuam válidos no esquema 6.
+
+- Unifica símbolos, referências e rótulos em cm das cotas da modelagem, das seções, do 3D e da prancha (issue #72). As elevações e o 3D mostram A e P no topo, L na base e H2, H1 e H à direita. A seção A–A e os cortes da prancha cotam a largura na base real. A planta e o corte B–B identificam suas dimensões. As exportações vetoriais usam as cotas atualizadas do projeto no esquema 6.
+
+- Na elevação da modelagem, a cota A fica acima do consolo e L fica abaixo (issue #71). H1 mostra a diferença entre H e H2 em centímetros e acompanha a edição das alturas. A cota H1 fica oculta quando as duas alturas coincidem, e as indicações de carga ocupam uma faixa separada.
+
+- Paridade entre quantidade indicada e desenhada (issue #64). O motor ganha a verificação `loopNesting`, que reprova alças aninhadas que não cabem na largura (mesma geometria do detalhamento, em `src/domain/loops.ts`) e só aparece quando reprova. O motor considera o diâmetro de cada camada, e a busca descarta os arranjos reprovados. No caso de regressão de 4 Ø20 com b = 30 cm em alça, antes aprovado, a 2ª alça não cabe e o cálculo reprova. O detalhamento deixa de descartar alças e costuras: representa todas as barras declaradas, sobrepostas na posição limite, com erro impeditivo, e N3G acompanha os ramos desenhados. `validateRebarConsistency` compara entrada, barras posicionadas, relação do aço, elevação, planta, 3D e cortes A–A/B–B e registra cada divergência como erro; os textos da prancha usam as quantidades detalhadas. Testes de busca baseados no cantilever de 30 cm passam a usar ancoragem soldada, pois suas alças não cabem fisicamente; os hashes integrais desses casos foram atualizados (a única diferença é a nova verificação).
+
+- Completa os quantitativos da issue #63 por posição de armadura. A relação, os resumos e os CSVs usam os valores do modelo. O CSV do projeto inclui consumo de aço e concreto por peça. O resumo geral mostra o volume total de concreto e a taxa de aço do projeto. O espaçamento de N3/N3G usa as estações efetivamente detalhadas.
+
+- Integra o PR #76 (issue #63). Elevação, cortes, 3D, prancha e quadro de aço passam a usar as mesmas formas e instâncias de armadura. A revisão recupera os ganchos nominais da costura no 3D e na planta, desenha trechos no plano do corte e identifica o par N3/N3G da estação. A prancha distingue ramos informados de ramos detalhados quando alguma alça é descartada. Volume de concreto e taxa de aço aparecem no Detalhamento e na Memória. O CSV geral acrescenta ramos detalhados, massa total de aço detalhado e taxa de aço. Mantém o motor ELU e o esquema 6.
+
+- Integra e revisa o PR #59: suspende atualizações das abas ocultas Detalhamento/Memória, recebendo dados e ações atuais ao reabrir; envia apenas a peça selecionada ao worker no escopo individual e evita alocações repetidas na visibilidade do desenho. Preserva a comparação superficial nas abas visíveis. O pan aplica a posição final da soltura e termina ao trocar peça/escopo/aba, reenquadrar, redimensionar, perder foco/captura ou cancelar. Exportações e motor preservados. Validação e limites em [docs/VALIDACAO-REVISAO-PR59.md](docs/VALIDACAO-REVISAO-PR59.md); a investigação de fluidez Tauri/Linux da #54 permanece aberta.
+
+- Integra e revisa o PR #58: elevação e seção A–A compartilham as barras efetivas do detalhamento, incluindo curvas de N1/P1, ganchos de suporte, penetração e alcance de N2/N2I e ligações no plano do corte. Alças descartadas não reaparecem nas vistas. Mantém a folga gráfica N2/N3, d’ do cálculo, quantitativos e esquema dos projetos; os desenhos de detalhamento e suas exportações recebem as mesmas correções.
+
+- Complementa a revisão do PR #57: detecta penetração real nas dobras de N3/N3G, propaga os erros de todas as estações à seção A–A, usa a posição real quando existe um único estribo e não desenha nem quantifica N3G/N4 internas sem as N1 centrais necessárias. Mantém entradas e resultados do cálculo resistente.
+
+- Corrige a geometria do estribo de 4 ramos (issue #49): N3G passa a ser um estribo interno fechado (`closedStirrup`) justaposto ao N3 (`Δx = φN3`) em ordem longitudinal monotônica, com largura definida pelas N1 centrais da 1ª camada e N4 internas nos cantos inferiores, verificação de colisão `N3/N3G × N1`, seção A–A da modelagem unificada na estação do 1º estribo com aviso de arranjo inválido e alinhamento das profundidades da costura inferior N2I entre modelagem, 3D e detalhamento (issue #50).
 
 - Integra a contribuição de @guilhermeperotoni na PR #46, preservando os commits originais. Corrige a detecção do Launcher Linux nas pastas por versão e a exclusividade do pacote entre download e instalação, incluindo a transferência da proteção ao instalador Windows.
 - Verifica atualizações ao abrir o aplicativo, inclusive por atalho e sem o Struct Launcher (issue #45). A consulta usa o catálogo assinado do OpenStruct (Ed25519, chaves fixadas), seleciona só versões estáveis mais novas do `consolostruct` com pacote assinado para o sistema, e mostra versão em execução, oferecida e novidades com Atualizar e Agora não. Nada é baixado, instalado ou reiniciado sem ação explícita; o trabalho é protegido antes do reinício. Instalações do Launcher são encaminhadas a ele; NSIS e AppImage independentes se atualizam no lugar; .deb e executáveis avulsos recebem o caminho seguro. Veja [docs/ATUALIZACOES.md](docs/ATUALIZACOES.md).

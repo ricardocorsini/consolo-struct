@@ -1,16 +1,19 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { FileText } from "lucide-react";
-import type { Piece, Project } from "../domain/model";
+import { number, type Piece, type Project } from "../domain/model";
+import { rebarModel } from "../detailing/rebarModel";
 import { ENGINE_VERSION, type CalculationResult } from "../domain/engine";
 import CalculationReport from "./CalculationReport";
 import BrandSignature from "./BrandSignature";
 import { steelBondDescription, steelLabel } from "../domain/steel";
+import { retainedDocumentEqual } from "../lib/retainedDocument";
 function MemoryPage({
   project,
   piece: p,
   result,
   stale,
   saving,
+  active: _active,
   select,
   calculate,
   exportPdf,
@@ -20,10 +23,16 @@ function MemoryPage({
   result?: CalculationResult;
   stale: boolean;
   saving: boolean;
+  active: boolean;
   select: (id: string) => void;
   calculate: () => void;
   exportPdf: () => void;
 }) {
+  // Same quantities as the detailing sheet (single reinforcement source).
+  const rebar = useMemo(
+    () => rebarModel(p, stale ? undefined : result?.values),
+    [p, result, stale],
+  );
   return (
     <section className="full-page report-page">
       <div className="report-selection">
@@ -62,6 +71,18 @@ function MemoryPage({
           {p.quantity}
         </p>
         <p className="table-note">{steelBondDescription(p.materials.fyk)}</p>
+        <p className="table-note" data-testid="memory-consumption">
+          Consumo por peça: concreto {number(rebar.concreteVolume, 3)} m³ · aço
+          detalhado {number(rebar.mass, 2)} kg · taxa de aço{" "}
+          {number(rebar.steelRate, 1)} kg/m³ · {p.quantity} peça(s):{" "}
+          {number(rebar.totalConcreteVolume, 3)} m³ e{" "}
+          {number(rebar.totalMass, 2)} kg
+        </p>
+        {rebar.issues.some(({ severity }) => severity === "error") && (
+          <p className="check-error">
+            Consumo com pendências impeditivas. Consulte o Detalhamento.
+          </p>
+        )}
         <button className="button" onClick={calculate}>
           Calcular revisão atual
         </button>
@@ -70,4 +91,4 @@ function MemoryPage({
     </section>
   );
 }
-export default memo(MemoryPage);
+export default memo(MemoryPage, retainedDocumentEqual);

@@ -2,6 +2,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { exampleProject } from "../../src/domain/model";
 import { shortFixture } from "../fixtures";
+import {
+  isFamilyAnchorage,
+  legacyAnchorageValues,
+} from "../reference/legacy-anchorage-contract";
 
 async function seed(page: Page) {
   const first = shortFixture(),
@@ -52,6 +56,75 @@ async function audit(page: Page) {
   await page.getByRole("button", { name: /Cálculo auditável/ }).click();
   return JSON.parse(await readFile((await (await event).path())!, "utf8"));
 }
+
+test("o eixo frontal e o quadro de N4 acompanham o cobrimento da peça padrão", async ({
+  page,
+}) => {
+  const project = exampleProject();
+  await page.addInitScript((raw) => {
+    localStorage.setItem("consolostruct.project.v1", raw);
+  }, JSON.stringify(project));
+  await page.goto("/");
+  await rebar(page);
+  const n4 = page.locator(".steel-N4 path");
+  await expect(n4).toHaveCount(2);
+  const diameter = page.getByLabel("Diâmetro N1", { exact: true });
+  const { geometry: g, rebar: r } = project.pieces[0];
+  const scale = Math.min(
+    480 / (g.columnWidth + g.length),
+    340 / (g.height + 80),
+  );
+  const front = (800 + (g.columnWidth + g.length) * scale) / 2;
+  for (const phi of ["10", "25", "20"]) {
+    const previous = await n4.first().getAttribute("d");
+    await diameter.selectOption(phi);
+    await expect(n4.first()).not.toHaveAttribute("d", previous!);
+    const end = await n4.first().evaluate((bar: SVGPathElement) => {
+      const box = bar.getBBox();
+      return box.x + box.width;
+    });
+    expect((front - end) / scale - r.constructiveDiameter / 2).toBeCloseTo(
+      g.cover,
+      3,
+    );
+  }
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Detalhamento", exact: true })
+    .click();
+  const sheet = page.locator(".detail-canvas");
+  const concreteFront = Number(
+    await sheet.locator("line.detail-FORMAS").nth(2).getAttribute("x2"),
+  );
+  const axis = concreteFront - (g.cover + r.constructiveDiameter / 2) / 10;
+  const drawnAxis = await sheet
+    .locator("line.detail-ARMADURAS")
+    .evaluateAll(
+      (lines, expected) =>
+        lines.some((line) =>
+          ["x1", "x2"].every(
+            (key) => Math.abs(Number(line.getAttribute(key)) - expected) < 1e-7,
+          ),
+        ),
+      axis,
+    );
+  expect(drawnAxis).toBe(true);
+  const positionX = await sheet
+    .locator("text")
+    .filter({ hasText: /^Pos\.$/ })
+    .getAttribute("x");
+  const rowY = await sheet
+    .locator(`text[x="${positionX}"]`)
+    .filter({ hasText: /^N4$/ })
+    .getAttribute("y");
+  const lengthX = await sheet
+    .locator("text")
+    .filter({ hasText: /^C unit cm$/ })
+    .getAttribute("x");
+  await expect(sheet.locator(`text[x="${lengthX}"][y="${rowY}"]`)).toHaveText(
+    "48,4",
+  );
+});
 
 test("migra, edita ramos/bitola, desfaz/refaz e salva por peça", async ({
   page,
@@ -122,8 +195,16 @@ test("N3 altera a área; N4 invalida a memória mas não altera resistência", a
     page.getByText("Cálculo desatualizado", { exact: true }),
   ).toBeVisible();
   const after = await audit(page);
-  expect(after.result.values).toEqual(before.result.values);
-  expect(after.result.checks).toEqual(before.result.checks);
+  expect(legacyAnchorageValues(after.result.values)).toEqual(
+    legacyAnchorageValues(before.result.values),
+  );
+  const resistant = (c: { id: string }) => !isFamilyAnchorage(c.id);
+  expect(after.result.checks.filter(resistant)).toEqual(
+    before.result.checks.filter(resistant),
+  );
+  expect(after.result.values.anchorN4_required).toBeGreaterThan(
+    before.result.values.anchorN4_required,
+  );
   expect(after.result.fingerprint).not.toBe(before.result.fingerprint);
 });
 
@@ -172,7 +253,9 @@ test("detalhamento exporta N4 e grampo interno com quantidades e forma", async (
     .getByRole("button", { name: "Detalhamento", exact: true })
     .click();
   await expect(page.locator(".detail-canvas")).toContainText("N4");
-  await expect(page.locator(".detail-canvas")).toContainText("Grampo interno");
+  await expect(page.locator(".detail-canvas")).toContainText(
+    "Estribo interno fechado",
+  );
   await expect(
     page.getByText("Porta-estribos inferior (2 barras)", { exact: true }),
   ).toHaveCount(0);

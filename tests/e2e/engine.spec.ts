@@ -44,6 +44,46 @@ test("calcula, altera ancoragem e identifica a revisão obsoleta", async ({
     page.locator("tr").filter({ hasText: "Ancoragem do tirante no suporte" }),
   ).toContainText("Não atende");
 });
+test("a memória distingue a distância nominal do limite no eixo de N2", async ({
+  page,
+}) => {
+  const input = project();
+  input.pieces[0].geometry.columnWidth = 207;
+  await page.getByLabel("Abrir arquivo de projeto").setInputFiles({
+    name: "ancoragem.lume.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(input)),
+  });
+  await page.getByRole("button", { name: "Calcular", exact: true }).click();
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Memória", exact: true })
+    .click();
+  const table = page.getByTestId("family-anchorage").first();
+  const details = table.getByText("N2", { exact: true });
+  await expect(
+    table.getByText("Limite nominal", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    table.getByText("Limite no eixo", { exact: true }),
+  ).toBeVisible();
+  await details.click();
+  const row = table
+    .getByRole("row")
+    .filter({ has: page.getByText("N2", { exact: true }) });
+  await expect(row.getByText("fbd", { exact: true })).toBeVisible();
+  await expect(row).toContainText("182,000 mm");
+  await expect(row).toContainText("178,850 mm");
+  await expect(
+    page
+      .locator(".report-paper")
+      .getByRole("row")
+      .filter({
+        hasText: "N2 · ancoragem no suporte",
+      })
+      .first(),
+  ).toContainText("Não atende");
+});
 test("ativa complementos e exporta a reação deslocada com os mesmos valores da memória", async ({
   page,
 }) => {
@@ -119,7 +159,7 @@ test("inclui combinação, exporta memória auditável e preserva simultaneidade
   await page.getByRole("button", { name: /Cálculo auditável/ }).click();
   const file = await dl;
   const r = JSON.parse(await readFile((await file.path())!, "utf8"));
-  expect(r.result.engineVersion).toBe("0.5.0");
+  expect(r.result.engineVersion).toBe("0.6.0");
   expect(r.result.combinations).toHaveLength(2);
   expect(r.result.combinations[1].values.vertical).toBe(200000);
   expect(r.result.combinations[1].values.horizontal).toBe(20000);

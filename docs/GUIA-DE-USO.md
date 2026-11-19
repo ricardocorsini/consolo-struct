@@ -25,6 +25,8 @@ O tema fica em **Configurações > Geral / Aparência**, além do acesso rápido
 
 Use **Novo projeto** e confirme nome, cliente e responsável em Dados do projeto. Cancelar mantém o projeto anterior. Use **Abrir** para carregar um projeto; o exemplo `examples/casos-validacao.lume.json` permite explorar o motor, e `examples/detalhamento/consolos-detalhados.lume.json` demonstra tirantes simples e duplos.
 
+Em **Novo projeto** e **Novo consolo**, N1 começa com uma barra transversal soldada de mesma bitola na ponta e um gancho de 90° para baixo no suporte. Em **Cálculo > Ancoragem na frente**, informe a resistência de cálculo por ramo e a qualificação da solda. O campo começa em zero. A alça horizontal continua disponível no seletor de ancoragem. Ao abrir um arquivo salvo, o programa usa a ancoragem registrada em cada peça.
+
 Novos arquivos usam `.consolo.json`; os antigos `.lume.json` continuam reconhecidos. O esquema atual é 6, com migração dos esquemas 1–5, preservando N3/N4, política γn e detalhamento. O aço secundário passa para Materiais. Arquivos com classes secundárias divergentes são rejeitados sem substituir o projeto aberto. Projetos antigos precisam da revisão dos parâmetros migrados antes de calcular. Salve com `Ctrl+S` (ou `Cmd+S` no macOS). Rascunhos do navegador e desktop são separados; transfira o arquivo de projeto para mudar de ambiente.
 
 ## 2. Conferir entradas
@@ -36,8 +38,9 @@ Selecione o consolo e revise geometria, materiais, cargas, armaduras e a aba **C
 - No modo H estimado, H digitado é **adicional** ao coeficiente do apoio. No modo análise, é a resultante total e exige justificativa.
 - Ações já de cálculo devem incluir γf e γn; não há segunda majoração.
 - N1 conta ramos longitudinais; N2 mantém dois ramos efetivos por estribo.
-- Em **Armaduras > N3**, escolha **2 ou 4 ramos efetivos por posição**. Quatro ramos usam estribo externo mais grampo interno em planos longitudinais distintos, com folga verificada no detalhamento. A seção identifica a projeção do par; arranjos congestionados recebem erro específico. Quantidade continua sendo o número de posições ao longo do consolo.
+- Em **Armaduras > N3**, escolha **2 ou 4 ramos efetivos por posição**. Quatro ramos usam estribo externo mais estribo interno fechado justaposto (`Δx = φN3`) envolvendo as N1 centrais, com folga verificada entre pares consecutivos. A seção A–A corta no 1º estribo, identifica a projeção do par e sinaliza arranjos inválidos. Quantidade continua sendo o número de posições ao longo do consolo.
 - **N4 · Armadura construtiva** é obrigatória. Edite somente sua bitola (padrão Ø8); a quantidade de 2 ou 4 barras deriva de N3. Aparece na elevação, seção, 3D e detalhamento, sem contribuição resistente ou participação na sugestão automática.
+- Sem quatro ramos físicos de N1 na primeira camada, o arranjo de quatro ramos N3 fica impedido: N3G e suas N4 internas não são desenhadas nem contabilizadas. Corrija a disposição de N1; o programa mantém a escolha de quatro ramos e os resultados do cálculo, sem tratar a omissão como solução. A seção A–A sinaliza também erros nas demais posições de estribos.
 - Em Cálculo > Armaduras complementares, **N5 é fendilhamento e N6 é suspensão**, com dois ramos efetivos, mantendo os campos e valores semânticos anteriores. Não se contam novamente em N2/N3.
 - Mudanças de ramos/bitola participam de Desfazer/Refazer, são independentes por peça e invalidam a memória anterior. Ao detalhar, confira as pendências de N4, inclusive interferências com N1 ou com a positiva P1 do modo viga.
 - Alterar bitolas, camadas, estribos ou cobrimento pode modificar a altura útil e o modelo resistente.
@@ -66,7 +69,11 @@ Para experimentar uma falha conhecida, no exemplo Curto-ELU reduza a ancoragem d
 - A árvore pode manter vários consolos expandidos. Expandir não troca a seleção. Clique em ×n para editar a quantidade.
 - Feche abas pelo × e reabra pelo navegador ou faixa de ferramentas. Fechar uma vista preserva o projeto.
 
-Na **Seção A–A** da modelagem, a cota **d’**, à esquerda, indica a distância do topo ao centroide de todas as barras do tirante, em centímetros com uma casa decimal. Com uma camada, termina no eixo das barras; com várias, usa o centroide ponderado pelas quantidades de cada camada, que pode ficar entre elas. O valor acompanha as entradas e o controle **Mostrar cotas**, mesmo com as armaduras ocultas. É uma cota de consulta, sem edição pelo desenho; as cotas **b** e **h** continuam editáveis.
+Na **Elevação** e na **Vista 3D**, **A** e **P** ficam acima da peça, **L** fica abaixo e **H2**, **H1** e **H** aparecem à direita. **H1 = H − H2** é uma cota de consulta que acompanha a edição das alturas. Em consolos retangulares, H1 fica oculta. No 3D, **b** mede a largura na ponta. Os símbolos correspondem aos campos de Geometria e à prancha de [detalhamento](DETALHAMENTO.md).
+
+Na **Seção A–A** da modelagem, a cota **b** é editável junto à base do corte. **H(x1)** informa a altura do concreto na estação do primeiro estribo. A cota **d’**, à esquerda, indica a distância do topo ao centroide nominal do tirante, ponderado pelas quantidades informadas em cada camada. Um corte que atravessa uma dobra pode mostrar os eixos em outra profundidade. Alças que não cabem são omitidas do desenho e mantêm as pendências no detalhamento. H(x1) e d’ são cotas de consulta e acompanham as entradas e o controle **Mostrar cotas**, mesmo com as armaduras ocultas.
+
+A elevação e a Seção A–A usam os percursos de N1, N2/N2I e P1 gerados no detalhamento. Confira os ganchos de suporte na elevação e as interseções reais das curvas no corte. Pinos e barras transversais soldadas aparecem no corte quando seu plano coincide com A–A. N3G e N4 conservam a projeção identificada de seus planos adjacentes.
 
 Consulte as [imagens e verificações da cota d’](VALIDACAO-SECAO-AA-DPRIME.md).
 

@@ -1,5 +1,11 @@
-import { constructiveGeometry } from "../detailing/transverse";
-import { steelMass } from "../detailing/geometry";
+import { rebarModel } from "../detailing/rebarModel";
+import {
+  anchorageFamilies,
+  anchorageFields,
+  anchorageKey,
+  anchorageLabels,
+  anchorageRows,
+} from "../domain/anchorage";
 import {
   calculate,
   classificationLabels,
@@ -8,7 +14,7 @@ import {
   POLICY,
 } from "../domain/engine";
 import { area, number, type Piece, type Project } from "../domain/model";
-import { concreteProfile, pieceVolume } from "../domain/profile";
+import { concreteProfile } from "../domain/profile";
 import { steelBondDescription, steelLabel } from "../domain/steel";
 import {
   gammaNDecision,
@@ -72,7 +78,7 @@ export function toSvg(p: Piece): string {
   const path = piecePoints(p)
     .map(([x, y]) => `${x},${-y}`)
     .join(" ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-g.columnWidth - 90} -170 ${width} ${height}">${gammaNote ? `<desc>${xml(gammaNote)}</desc>` : ""}<rect x="${-g.columnWidth - 90}" y="-170" width="${width}" height="${height}" fill="white"/><g stroke="#3e4c60" stroke-width="2" fill="#f2f4f7"><rect x="${-g.columnWidth}" y="-80" width="${g.columnWidth}" height="${g.height + 140}"/><polygon points="${path}"/></g><g font-family="sans-serif" font-size="12" fill="#33445c"><text x="${-g.columnWidth}" y="-130">${xml(p.name)} - ConsoloStruct 0.7 | GEOMETRIA NAO EXECUTIVA</text><text x="${-g.columnWidth}" y="${g.height + 85}">Unidades: mm. Consultar memoria de calculo. Desenho nao executivo.</text>${gammaRows.map((row, index) => `<text x="${-g.columnWidth}" y="${g.height + 110 + index * 16}">${xml(row)}</text>`).join("")}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-g.columnWidth - 90} -170 ${width} ${height}">${gammaNote ? `<desc>${xml(gammaNote)}</desc>` : ""}<rect x="${-g.columnWidth - 90}" y="-170" width="${width}" height="${height}" fill="white"/><g stroke="#3e4c60" stroke-width="2" fill="#f2f4f7"><rect x="${-g.columnWidth}" y="-80" width="${g.columnWidth}" height="${g.height + 140}"/><polygon points="${path}"/></g><g font-family="sans-serif" font-size="12" fill="#33445c"><text x="${-g.columnWidth}" y="-130">${xml(p.name)} - ConsoloStruct 0.8 | GEOMETRIA NAO EXECUTIVA</text><text x="${-g.columnWidth}" y="${g.height + 85}">Unidades: mm. Consultar memoria de calculo. Desenho nao executivo.</text>${gammaRows.map((row, index) => `<text x="${-g.columnWidth}" y="${g.height + 110 + index * 16}">${xml(row)}</text>`).join("")}</g></svg>`;
 }
 export function toDxf(p: Piece): string {
   const g = p.geometry;
@@ -138,7 +144,7 @@ export function toDxf(p: Piece): string {
     40,
     Math.max(g.height * 0.035, 8),
     1,
-    "ConsoloStruct 0.7 - GEOMETRIA NAO EXECUTIVA - NAO EXECUTIVO",
+    "ConsoloStruct 0.8 - GEOMETRIA NAO EXECUTIVA - NAO EXECUTIVO",
   );
   gammaNNoteRows(gammaNGeometryNote(p)).forEach((row, index) =>
     lines.push(
@@ -172,12 +178,20 @@ const csvCell = (v: unknown) =>
     .replace(/^[=+@\-\t\r]/, "'$&")
     .replaceAll('"', '""')}"`;
 export function toCsv(project: Project) {
+  const anchorColumns = [
+    "required",
+    "available",
+    "nominal",
+    "axis",
+    "adopted",
+    "front",
+  ] as const;
   const withGammaN = project.pieces.some(
     (p) => p.design.gammaNPolicy === "table9062",
   );
   const rows: unknown[][] = [
     [
-      "ConsoloStruct 0.7 - Quantidades e verificacoes ELU; consultar memoria e pendencias",
+      "ConsoloStruct 0.8 - Quantidades e verificacoes ELU; consultar memoria e pendencias",
     ],
     [
       "Peca",
@@ -214,10 +228,24 @@ export function toCsv(project: Project) {
       "Piso de referencia gamma n",
       "Justificativa informada gamma n",
     );
+  rows[1].push(
+    "N1 ramos detalhados por peca",
+    "Aco detalhado total (kg)",
+    "Taxa de aco detalhado (kg/m3)",
+    "Volume consolo por peca (m3)",
+    "Aco detalhado por peca (kg)",
+    ...anchorageFamilies.flatMap((family) =>
+      anchorColumns.map(
+        (field) => `${family} ${anchorageLabels[field][0]} (mm)`,
+      ),
+    ),
+    "N4 comprimento desenvolvido unitario (cm)",
+  );
   for (const p of project.pieces) {
     const r = calculate(p);
-    const n4 = constructiveGeometry(p);
-    const n4Cut = Math.ceil(n4.path.length - 1e-7);
+    // N4 as placed in the single reinforcement source (same as the sheet).
+    const rebar = rebarModel(p, r.values);
+    const n4 = rebar.bars.find((b) => b.family === "constructive");
     rows.push([
       p.name,
       p.description,
@@ -231,7 +259,7 @@ export function toCsv(project: Project) {
       p.rebar.tieCount,
       p.rebar.tieDiameter,
       number(area(p.rebar.tieCount, p.rebar.tieDiameter) / 100, 2),
-      number(pieceVolume(p) * p.quantity, 3),
+      number(rebar.totalConcreteVolume, 3),
       r.status,
       r.values.tieRequired === undefined
         ? ""
@@ -251,12 +279,10 @@ export function toCsv(project: Project) {
         ),
         3,
       ),
-      n4.branches,
-      n4.diameter,
-      n4.path.valid ? number(n4Cut / 10, 1) : "",
-      n4.path.valid
-        ? number(steelMass(n4Cut, n4.diameter) * n4.branches * p.quantity, 3)
-        : "",
+      n4?.quantity ?? 0,
+      n4?.diameter ?? p.rebar.constructiveDiameter ?? 8,
+      n4 ? number(n4.cutLength / 10, 1) : "",
+      n4 ? number(n4.totalMass, 3) : "",
       ...(withGammaN
         ? [
             gammaNPolicyLabels[gammaNDecision(p.design).policy],
@@ -266,6 +292,18 @@ export function toCsv(project: Project) {
             p.design.gammaNJustification ?? "",
           ]
         : []),
+      rebar.tieRows.reduce((sum, row) => sum + row.detailedCount, 0),
+      number(rebar.totalMass, 2),
+      number(rebar.steelRate, 1),
+      number(rebar.concreteVolume, 3),
+      number(rebar.mass, 2),
+      ...anchorageFamilies.flatMap((family) =>
+        anchorColumns.map((field) => {
+          const value = r.values[anchorageKey(family, field)];
+          return value === undefined ? "" : number(value, 3);
+        }),
+      ),
+      n4 ? number(n4.exactLength / 10, 3) : "",
     ]);
   }
   return "\uFEFF" + rows.map((r) => r.map(csvCell).join(";")).join("\r\n");
@@ -404,7 +442,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       `Concreto excedente: remover. Situacao: ${concreteProfile(p).status === "removed" ? "recorte aplicado abaixo da biela" : "recorte nao aplicado, geometria original"}; ver nota excessConcrete.`,
     );
   line(
-    `fck=${p.materials.fck} MPa; fyk=${p.materials.fyk} MPa. N1=${p.rebar.tieCount} ramos phi ${p.rebar.tieDiameter}; N2=${p.rebar.stitchCount} estribos phi ${p.rebar.stitchDiameter}; N3=${p.rebar.stirrupCount} posicoes, ${p.rebar.stirrupBranches ?? 2} ramos efetivos, phi ${p.rebar.stirrupDiameter}; N4=${p.rebar.stirrupBranches ?? 2} barras phi ${p.rebar.constructiveDiameter ?? 8}, sem contribuicao resistente.`,
+    `fck=${p.materials.fck} MPa; fyk=${p.materials.fyk} MPa. Armaduras informadas no calculo: N1=${p.rebar.tieCount} ramos phi ${p.rebar.tieDiameter}; N2=${p.rebar.stitchCount} estribos phi ${p.rebar.stitchDiameter}; N3=${p.rebar.stirrupCount} posicoes, ${p.rebar.stirrupBranches ?? 2} ramos por posicao, phi ${p.rebar.stirrupDiameter}.`,
   );
   line(
     `Tirante: ${steelLabel(p.materials.fyk)}; transversal: ${steelLabel(p.materials.fykTransverse)}.`,
@@ -413,11 +451,55 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
   line(
     `Acoes principais: V=${num(p.loads.vertical)} N; H=${num(p.loads.horizontal)} N; gammaf=${p.loads.gamma}. Os parametros completos constam do apendice.`,
   );
-  const n4 = constructiveGeometry(p);
+  // N4 and the quantities come from the single reinforcement source.
+  const rebar = rebarModel(p, result.values);
+  const n4 = rebar.bars.find((b) => b.family === "constructive");
+  const n4Count = n4?.quantity ?? 0;
   line(
-    `N4 construtiva: face inferior com dobra frontal e prolongamento no suporte; ${n4.branches} barras phi ${n4.diameter} mm; C unitario=${number(Math.ceil(n4.path.length - 1e-7) / 10, 1)} cm; massa total=${number(steelMass(Math.ceil(n4.path.length - 1e-7), n4.diameter) * n4.branches * p.quantity, 3)} kg. Consultar forma e pendencias no detalhamento.`,
+    `N4 construtiva. ${n4Count} barras phi ${n4?.diameter ?? p.rebar.constructiveDiameter ?? 8} mm, com dobra frontal e prolongamento no suporte.`,
   );
-  n4.problems.forEach((message) => line(message, 10, true));
+  if (n4)
+    line(
+      `N4 desenvolvida = ${number(n4.exactLength / 10, 3)} cm. C unitario = ${number(n4.cutLength / 10, 1)} cm. Massa total = ${number(n4.totalMass, 3)} kg.`,
+    );
+  rebar.issues
+    .filter((issue) => issue.code.startsWith("constructive-"))
+    .forEach((issue) => line(issue.message, 10, true));
+  line(
+    `Consumo por peca: concreto ${number(rebar.concreteVolume, 3)} m3; aco detalhado ${number(rebar.mass, 2)} kg; taxa de aco ${number(rebar.steelRate, 1)} kg/m3. Total (${p.quantity} pecas): concreto ${number(rebar.totalConcreteVolume, 3)} m3; aco ${number(rebar.totalMass, 2)} kg.`,
+  );
+  const detailedTies = rebar.tieRows.reduce(
+    (sum, row) => sum + row.detailedCount,
+    0,
+  );
+  if (detailedTies !== p.rebar.tieCount)
+    line(
+      `N1 no detalhamento: ${detailedTies} de ${p.rebar.tieCount} ramos informados.`,
+      10,
+      true,
+    );
+  if (rebar.issues.some(({ severity }) => severity === "error"))
+    line(
+      "Consumo com pendencias impeditivas. Consulte o Detalhamento.",
+      10,
+      true,
+    );
+  const familyAnchorage = (values: Record<string, number>) => {
+    for (const row of anchorageRows(values)) {
+      const data = anchorageFields.flatMap((field) => {
+        const value = row[field];
+        const [label, unit] = anchorageLabels[field];
+        return value === undefined
+          ? []
+          : [`${label} = ${num(value)} ${unit}`.trim()];
+      });
+      line(`${row.family} | ${data.join(" | ")}`, 8);
+    }
+  };
+  if (anchorageRows(result.values).length) {
+    title("Ancoragem por familia de armadura");
+    familyAnchorage(result.values);
+  }
   title("3. Envelope de verificacoes");
   line(
     `Combinacao determinante da area do tirante: ${result.governingCase || "--"}. Cada verificacao e envelopada separadamente; nao se misturam V e H de casos diferentes.`,
@@ -439,6 +521,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       `${i + 1}. ${c.name} | ${classificationLabels[c.classification].toUpperCase()} | ${methodLabels[c.method].toUpperCase()}`,
     );
     const v = c.values;
+    familyAnchorage(v);
     if (c.method === "beam") {
       for (const [label, val, unit] of [
         ["Vd", v.vertical, "N"],
@@ -639,7 +722,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
     doc.setFontSize(8);
     doc.setTextColor(100);
     doc.text(
-      `ConsoloStruct 0.7 | OPENSTRUCT | Motor ${ENGINE_VERSION} | ${ascii(p.name).slice(0, 35)} | ${i}/${pages}`,
+      `ConsoloStruct 0.8 | OPENSTRUCT | Motor ${ENGINE_VERSION} | ${ascii(p.name).slice(0, 35)} | ${i}/${pages}`,
       18,
       287,
     );

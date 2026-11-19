@@ -1,9 +1,234 @@
 import { transverseGeometry } from "../../src/detailing/transverse";
+import { buildDetail } from "../../src/detailing/model";
+import { sectionBars } from "../../src/detailing/projection";
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { exampleProject, number, type Piece } from "../../src/domain/model";
+import { mandrelDiameter } from "../../src/detailing/geometry";
 import { tieLayout } from "../../src/domain/engine";
-import { reactionGeometry, upperStitchLayout } from "../../src/domain/theory";
+import {
+  reactionGeometry,
+  stirrupLayout,
+  upperStitchLayout,
+} from "../../src/domain/theory";
+import { bottomDepth, concreteProfile } from "../../src/domain/profile";
+import { shortFixture } from "../fixtures";
+
+const elevationDimension = (drawing: Locator, symbol: string) =>
+  drawing.getByRole("button", { name: new RegExp(`^Editar ${symbol} =`) });
+
+async function measuredSegment(dimension: Locator) {
+  const path = (await dimension.locator("path").getAttribute("d"))!;
+  const [x1, y1, x2, y2] = path
+    .slice(1, path.indexOf(" M"))
+    .split(/[ L]/)
+    .map(Number);
+  return { x1, y1, x2, y2 };
+}
+
+const drawingBounds = (element: Locator) =>
+  element.evaluate((node: SVGGraphicsElement) => {
+    const { x, y, width, height } = node.getBBox();
+    return { left: x, top: y, right: x + width, bottom: y + height };
+  });
+
+for (const compact of [false, true]) {
+  test(`elevação: A, L e H1 medem a geometria sem colidir com as forças (${compact ? "desnível curto" : "peça padrão"})`, async ({
+    page,
+  }) => {
+    const project = exampleProject();
+    const piece = project.pieces[0];
+    piece.design.reactionPosition = "outerThird";
+    if (compact) {
+      Object.assign(piece.geometry, {
+        height: 280,
+        tipHeight: 277,
+        columnWidth: 280,
+        length: 1300,
+        loadOffset: 500,
+      });
+      piece.design.bearingHeight = 160;
+      piece.design.forceMode = "design";
+      piece.loads.horizontal = -45000;
+      await page.setViewportSize({ width: 1150, height: 780 });
+    }
+    await page.addInitScript(
+      (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+      JSON.stringify(project),
+    );
+    await page.goto("/");
+
+    const drawing = page.getByRole("group", {
+      name: "Elevação do consolo C01",
+    });
+    const model = drawing.getByTestId("drawing-model");
+    const outline = (await model
+      .locator(":scope > path")
+      .first()
+      .getAttribute("d"))!;
+    const [, , faceX, topY, tipX, , tipY, , rootY] = outline
+      .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!
+      .map(Number);
+    const scale = (tipX - faceX) / piece.geometry.length;
+    const load = elevationDimension(drawing, "A");
+    const length = await measuredSegment(elevationDimension(drawing, "L"));
+    const offset = await measuredSegment(load);
+    expect(offset.x1).toBeCloseTo(faceX, 8);
+    expect(offset.x2).toBeCloseTo(faceX + piece.geometry.loadOffset * scale, 8);
+    expect(offset.y1).toBe(offset.y2);
+    expect(offset.y1).toBeLessThan(topY);
+    expect(length.x1).toBeCloseTo(faceX, 8);
+    expect(length.x2).toBeCloseTo(tipX, 8);
+    expect(length.y1).toBe(length.y2);
+    expect(length.y1).toBeGreaterThan(rootY);
+
+    const h1 = drawing.getByRole("img", { name: /^H1 =/ });
+    const value = number(
+      (piece.geometry.height - piece.geometry.tipHeight) / 10,
+    );
+    await expect(h1.locator("text")).toHaveText(`H1 = ${value}`);
+    await expect(h1).toHaveClass(/dimension-derived/);
+    const difference = await measuredSegment(h1);
+    const tip = await measuredSegment(elevationDimension(drawing, "H2"));
+    const total = await measuredSegment(elevationDimension(drawing, "H"));
+    expect(difference.x1).toBe(difference.x2);
+    if (compact) expect(difference.x1).toBeGreaterThan(tip.x1);
+    else expect(difference.x1).toBe(tip.x1);
+    expect(total.x1).toBeGreaterThan(difference.x1);
+    expect(
+      (await drawingBounds(model.locator(".bar-label"))).right,
+    ).toBeLessThan(tip.x1);
+    expect(difference.y1).toBeCloseTo(tipY, 8);
+    expect(difference.y2).toBeCloseTo(rootY, 8);
+    expect([tip.y1, tip.y2, total.y1, total.y2]).toEqual([
+      topY,
+      tipY,
+      topY,
+      rootY,
+    ]);
+    const extensions = await model
+      .locator(":scope > .dimension-extension > path")
+      .evaluateAll((paths) =>
+        paths.map((path) => path.getAttribute("d")).join(" "),
+      );
+    expect(extensions).toContain(`M${tipX + 5} ${tipY}H${difference.x1 + 8}`);
+    expect(extensions).toContain(`M${faceX + 5} ${rootY}H${total.x1 + 8}`);
+    expect(extensions).toContain(`M${offset.x2} `);
+    expect(extensions).toContain(`M${tipX} ${tipY + 5}V${length.y1 + 6}`);
+
+    const forces = model.locator(".elevation-forces");
+    await expect(forces.locator("path")).toHaveCount(2);
+    await expect(forces.locator(".force-label").first()).toContainText(
+      compact ? "Vd" : "Vk",
+    );
+    const caption = model.getByText(
+      `a_calc = ${number(reactionGeometry(piece).a / 10)} cm`,
+    );
+    await expect(caption).toBeVisible();
+    const loadsTop = (await drawingBounds(forces)).top;
+    expect((await drawingBounds(load)).bottom).toBeLessThan(loadsTop);
+    expect((await drawingBounds(caption)).bottom).toBeLessThan(loadsTop);
+    const bearingTop = Number(
+      await model.locator(":scope > rect").getAttribute("y"),
+    );
+    expect((await drawingBounds(load)).bottom).toBeLessThan(bearingTop);
+    for (const annotation of await drawing
+      .locator(".dimension, .elevation-forces")
+      .all()) {
+      const { left, top, right, bottom } = await drawingBounds(annotation);
+      expect(left).toBeGreaterThan(0);
+      expect(top).toBeGreaterThan(0);
+      expect(right).toBeLessThan(800);
+      expect(bottom).toBeLessThan(600);
+    }
+  });
+}
+
+test("elevação: edita as cinco cotas por clique e teclado e atualiza H1", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const drawing = page.getByRole("group", { name: "Elevação do consolo C01" });
+  const derived = drawing.getByRole("img", { name: /^H1 =/ });
+  await expect(derived.locator("text")).toHaveText("H1 = 20,0");
+  const panelHeight = page.getByRole("textbox", { name: /^Altura no pilar/ });
+  await panelHeight.fill("45,5");
+  await panelHeight.press("Enter");
+  await expect(derived.locator("text")).toHaveText("H1 = 25,5");
+
+  for (const [symbol, editorLabel, entry, key, h1] of [
+    ["H", "Altura no pilar H", "47", "Enter", "27,0"],
+    ["H2", "Altura na ponta H2", "46,75", "Space", "0,25"],
+    ["L", "Comprimento L", "32", "Enter", "0,25"],
+    ["A", "Posição da carga A", "15", "", "0,25"],
+    ["P", "Dimensão do pilar P", "35", "Space", "0,25"],
+  ]) {
+    const dimension = elevationDimension(drawing, symbol);
+    if (key) await dimension.press(key);
+    else await dimension.locator("text").click();
+    await expect(page.locator(".dimension-editor label")).toHaveText(
+      editorLabel,
+    );
+    const input = page.getByLabel("Valor da cota");
+    await expect(input).toBeFocused();
+    await input.fill(entry);
+    await input.press("Enter");
+    await expect(dimension).toHaveText(
+      `${symbol} = ${number(Number(entry.replace(",", ".")))}`,
+    );
+    await expect(derived.locator("text")).toHaveText(`H1 = ${h1}`);
+  }
+  await expect(derived).not.toHaveAttribute("tabindex", "0");
+  await expect(
+    drawing.getByRole("button", { name: /^Editar H1 =/ }),
+  ).toHaveCount(0);
+  const panelTip = page.getByRole("textbox", { name: /^Altura na ponta/ });
+  await panelTip.fill("47");
+  await panelTip.press("Enter");
+  await expect(derived).toHaveCount(0);
+  await page.getByRole("button", { name: "Desfazer", exact: true }).click();
+  await expect(derived.locator("text")).toHaveText("H1 = 0,25");
+});
+
+test("seção A–A: b parte da base real e H(x1) mede o concreto no corte", async ({
+  page,
+}) => {
+  const piece = exampleProject().pieces[0];
+  const depth = bottomDepth(
+    concreteProfile(piece),
+    stirrupLayout(piece).positions[0],
+  );
+  await page.goto("/");
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Seção A–A", exact: true })
+    .click();
+  const drawing = page.getByRole("group", {
+    name: "Seção transversal do consolo C01",
+  });
+  const model = drawing.getByTestId("drawing-model");
+  const shape = model.locator(":scope > rect").first();
+  const x = Number(await shape.getAttribute("x"));
+  const y = Number(await shape.getAttribute("y"));
+  const width = Number(await shape.getAttribute("width"));
+  const height = Number(await shape.getAttribute("height"));
+  const b = await measuredSegment(elevationDimension(drawing, "b"));
+  expect(b.x1).toBeCloseTo(x, 9);
+  expect(b.x2).toBeCloseTo(x + width, 9);
+  expect(b.y1).toBeGreaterThan(y + height);
+  const sectionHeight = drawing.getByRole("img", { name: /^H\(x1\) =/ });
+  await expect(sectionHeight.locator("text")).toHaveText(
+    `H(x1) = ${number(depth / 10)}`,
+  );
+  const h = await measuredSegment(sectionHeight);
+  expect(h.y1).toBeCloseTo(y, 9);
+  expect(h.y2).toBeCloseTo(y + height, 9);
+  const extension = await model
+    .locator(":scope > .dimension-extension > path")
+    .getAttribute("d");
+  expect(extension).toContain(`M${x} ${y + height + 5}V`);
+});
+
 test("edita, desfaz, salva, reabre, revisa e exporta", async ({
   page,
 }, testInfo) => {
@@ -15,7 +240,7 @@ test("edita, desfaz, salva, reabre, revisa e exporta", async ({
   ).toBeVisible();
   await page.getByLabel("Altura no pilar").fill("45,5");
   await page.getByLabel("Altura no pilar").press("Enter");
-  await expect(page.locator("svg").getByText("h = 45,5")).toBeVisible();
+  await expect(page.locator("svg").getByText("H = 45,5")).toBeVisible();
   await page.getByRole("button", { name: "Desfazer", exact: true }).click();
   await expect(page.getByLabel("Altura no pilar")).toHaveValue("40");
   await page.getByRole("button", { name: "Refazer", exact: true }).click();
@@ -187,6 +412,96 @@ async function editSectionField(field: Locator, value: string) {
   await field.press("Enter");
 }
 
+test("elevação e prancha acompanham o gancho de N1 ao editar ancoragem e bitola", async ({
+  page,
+}) => {
+  const p = shortFixture();
+  p.design.frontAnchor = "welded";
+  p.design.weldedBarDiameter = p.rebar.tieDiameter;
+  p.detailing.supportHookProjection = 600;
+  p.detailing.supportHookTail = 128;
+  await page.addInitScript(
+    (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+    JSON.stringify({ ...exampleProject(), pieces: [p] }),
+  );
+  await page.goto("/");
+  const tabs = page.locator(".document-tabs");
+  const open = (name: string) =>
+    tabs.getByRole("button", { name, exact: true }).click();
+  const tie = page.locator(".steel-N1 path").first();
+  const sheet = page.locator(".detail-canvas");
+  const anchor = page.getByLabel("Ancoragem do detalhe");
+  await expect(tie).toHaveAttribute("d", /^M[^A]+$/);
+  await open("Detalhamento");
+  await anchor.selectOption("hook");
+
+  const checkHook = async () => {
+    const phi = p.rebar.tieDiameter;
+    const radius = (mandrelDiameter(phi, p.materials.fyk) + phi) / 2;
+    const x = -p.detailing.supportHookProjection;
+    const y = tieLayout(p).rows[0].y + radius + p.detailing.supportHookTail;
+    await open(`${p.name} · Elevação`);
+    await expect(tie).toHaveAttribute("d", /A.*L/);
+    const d = (await tie.getAttribute("d"))!;
+    const [r] = d.split("A")[1].split(" ").map(Number);
+    const [endX, endY] = d.split("L").at(-1)!.split(" ").map(Number);
+    const scale = 480 / (p.geometry.columnWidth + p.geometry.length);
+    await expect(tie).toHaveCSS("stroke-linecap", "butt");
+    expect(Number(await tie.getAttribute("stroke-width")) / scale).toBeCloseTo(
+      phi,
+      8,
+    );
+    expect(r / scale).toBeCloseTo(radius, 8);
+    expect((endX - 480) / scale).toBeCloseTo(x, 8);
+    expect((endY - 185) / scale).toBeCloseTo(y, 8);
+
+    await open("Detalhamento");
+    const leg = sheet.locator("line.detail-ARMADURAS").nth(1);
+    await expect
+      .poll(async () => {
+        const [x2, y2] = await leg.evaluate((line) =>
+          ["x2", "y2"].map((key) => Number(line.getAttribute(key))),
+        );
+        const [originX, originY] = await sheet
+          .locator("line.detail-FORMAS")
+          .nth(1)
+          .evaluate((edge) =>
+            ["x2", "y2"].map((key) => Number(edge.getAttribute(key))),
+          );
+        return Math.hypot((x2 - originX) * 10 - x, (y2 - originY) * 10 - y);
+      })
+      .toBeLessThan(1e-6);
+    const sheetArc = sheet.locator("path.detail-ARMADURAS").first();
+    await expect(sheetArc).toHaveAttribute(
+      "d",
+      new RegExp(` A${radius / 10} `),
+    );
+  };
+
+  await checkHook();
+  await editSectionField(
+    page.getByLabel("Projeção do gancho no suporte"),
+    "65",
+  );
+  p.detailing.supportHookProjection = 650;
+  await checkHook();
+  await editSectionField(page.getByLabel("Ponta reta do gancho"), "16");
+  p.detailing.supportHookTail = 160;
+  await checkHook();
+  await open(`${p.name} · Elevação`);
+  await page
+    .locator(".inspector-tabs")
+    .getByRole("button", { name: "Editar armaduras", exact: true })
+    .click();
+  await page.getByLabel("Diâmetro N1").selectOption("20");
+  p.rebar.tieDiameter = 20;
+  p.design.weldedBarDiameter = 20;
+  await checkHook();
+  await anchor.selectOption("straight");
+  await open(`${p.name} · Elevação`);
+  await expect(tie).toHaveAttribute("d", /^M[^A]+$/);
+});
+
 async function expectInternalStitches(page: Page, piece: Piece) {
   const section = page.getByRole("group", {
     name: `Seção transversal do consolo ${piece.name}`,
@@ -201,6 +516,8 @@ async function expectInternalStitches(page: Page, piece: Piece) {
     const box = stirrup.getBBox();
     return {
       top: concrete.y.baseVal.value,
+      concreteLeft: concrete.x.baseVal.value,
+      concreteRight: concrete.x.baseVal.value + concrete.width.baseVal.value,
       scale: concrete.height.baseVal.value,
       left: box.x,
       right: box.x + box.width,
@@ -213,30 +530,37 @@ async function expectInternalStitches(page: Page, piece: Piece) {
           x: bar.cx.baseVal.value,
           y: bar.cy.baseVal.value,
           radius: bar.r.baseVal.value,
-          stroke: parseFloat(getComputedStyle(bar).strokeWidth),
+          stroke: getComputedStyle(bar).stroke,
         }),
       ),
     };
   });
-  const scale = geometry.scale / piece.geometry.height;
-  const layout = tieLayout(piece);
-  const levels = [...upperStitchLayout(piece, layout).levels];
-  if (reactionGeometry(piece).a / layout.d <= 0.5)
-    for (let i = 0; i < piece.design.lowerStitchCount; i++)
-      levels.push(
-        layout.dPrime +
-          (2 * layout.d) / 3 +
-          ((i + 0.5) * layout.d) / (3 * piece.design.lowerStitchCount),
-      );
-  expect(geometry.bars).toHaveLength(2 * levels.length);
+  const sectionHeight = bottomDepth(
+    concreteProfile(piece),
+    stirrupLayout(piece).positions[0],
+  );
+  const scale = geometry.scale / sectionHeight;
+  const cuts = sectionBars(
+    piece,
+    buildDetail(piece),
+    stirrupLayout(piece).positions[0],
+  ).stitches.flatMap(({ positions, depth, diameter }) =>
+    positions.map((v) => ({ v, depth, diameter })),
+  );
+  expect(
+    (geometry.left - geometry.stroke / 2 - geometry.concreteLeft) / scale,
+  ).toBeCloseTo(piece.geometry.cover, 3);
+  expect(
+    (geometry.concreteRight - geometry.right - geometry.stroke / 2) / scale,
+  ).toBeCloseTo(piece.geometry.cover, 3);
+  expect(geometry.bars).toHaveLength(cuts.length);
+  let overlap = false;
   geometry.bars.forEach((bar, index) => {
-    const outerRadius = bar.radius + bar.stroke / 2;
-    expect(bar.x - outerRadius).toBeGreaterThan(
-      geometry.left + geometry.stroke / 2,
-    );
-    expect(bar.x + outerRadius).toBeLessThan(
-      geometry.right - geometry.stroke / 2,
-    );
+    const { v, depth, diameter } = cuts[index];
+    expect(bar.stroke).toBe("none");
+    expect(bar.x).toBeCloseTo(geometry.concreteLeft + v * scale, 4);
+    expect(bar.y).toBeCloseTo(geometry.top + depth * scale, 4);
+    expect(bar.radius / scale).toBeCloseTo(diameter / 2, 6);
     // Signed distance to the rounded N3 centerline, including both strokes.
     const halfWidth = (geometry.right - geometry.left) / 2;
     const halfHeight = geometry.stirrupHeight / 2;
@@ -255,13 +579,13 @@ async function expectInternalStitches(page: Page, piece: Piece) {
       Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) +
       Math.min(Math.max(dx, dy), 0) -
       corner;
-    expect(distance + outerRadius + geometry.stroke / 2).toBeLessThan(0);
-    expect(bar.y).toBeCloseTo(
-      geometry.top + levels[Math.floor(index / 2)] * scale,
-      4,
-    );
-    expect(bar.radius / scale).toBeCloseTo(piece.rebar.stitchDiameter / 2, 6);
+    const penetration = distance + bar.radius + geometry.stroke / 2;
+    if (dy <= 0) expect(Math.abs(penetration / scale)).toBeLessThan(1e-3);
+    overlap ||= penetration / scale > 1e-3;
   });
+  await expect(
+    section.getByText(/N2 sem espaço no contorno projetado/),
+  ).toHaveCount(overlap ? 1 : 0);
   return geometry;
 }
 
@@ -316,7 +640,7 @@ for (const arrangement of [
     branches: 4,
   },
 ]) {
-  test(`seção A–A: N2 inteiro dentro de N3 (${arrangement.width}/${arrangement.height}, φ${arrangement.stitch})`, async ({
+  test(`seção A–A: N2 no eixo físico de N3 (${arrangement.width}/${arrangement.height}, φ${arrangement.stitch})`, async ({
     page,
   }, testInfo) => {
     const project = exampleProject();
@@ -356,7 +680,10 @@ for (const arrangement of [
     const section = page.getByRole("group", {
       name: `Seção transversal do consolo ${piece.name}`,
     });
-    await section.locator(".steel-N2 circle").first().click();
+    await section
+      .locator(".steel-N2 [data-selection-hit], .steel-N2 circle")
+      .first()
+      .click();
     await expect(section.locator(".steel-N2")).toHaveClass(/steel-selected/);
     for (const theme of ["light", "dark"]) {
       if (theme === "dark")
@@ -434,12 +761,28 @@ async function expectSectionDPrime(page: Page, piece: Piece) {
   expect(geometry.start.x).toBeLessThan(geometry.left);
   expect(geometry.end.x).toBe(geometry.start.x);
   expect(geometry.start.y).toBeCloseTo(geometry.top, 4);
+  const sectionHeight = bottomDepth(
+    concreteProfile(piece),
+    stirrupLayout(piece).positions[0],
+  );
   expect(geometry.end.y).toBeCloseTo(
-    geometry.top + (layout.dPrime * geometry.height) / piece.geometry.height,
+    geometry.top + (layout.dPrime * geometry.height) / sectionHeight,
     4,
   );
-  expect(geometry.end.y).toBeCloseTo(geometry.centroid, 4);
-  expect(geometry.count).toBe(piece.rebar.tieCount);
+  const sec = sectionBars(
+    piece,
+    buildDetail(piece),
+    stirrupLayout(piece).positions[0],
+  );
+  const expectedCentroid =
+    sec.ties.reduce((sum, bar) => sum + bar.depth, 0) / sec.ties.length;
+  expect(geometry.centroid).toBeCloseTo(
+    geometry.top + (expectedCentroid * geometry.height) / sectionHeight,
+    4,
+  );
+  if (sec.ties.length === piece.rebar.tieCount)
+    expect(geometry.end.y).toBeCloseTo(geometry.centroid, 4);
+  expect(geometry.count).toBe(sec.ties.length);
 }
 
 test("seção A–A: d’ acompanha o centroide, cobrimento, bitolas e camadas desiguais", async ({
@@ -471,6 +814,7 @@ test("seção A–A: d’ acompanha o centroide, cobrimento, bitolas e camadas d
     .click();
   await page.getByLabel("Diâmetro N1").selectOption("16");
   piece.rebar.tieDiameter = 16;
+  piece.design.weldedBarDiameter = 16;
   await expectSectionDPrime(page, piece);
   await page.getByLabel("Diâmetro N3").selectOption("8");
   piece.rebar.stirrupDiameter = 8;
@@ -552,8 +896,11 @@ for (const layers of [1, 3]) {
       name: "Seção transversal do consolo C01",
     });
     await expect(
-      section.getByRole("button", { name: /^Editar [bh] =/ }),
-    ).toHaveCount(2);
+      section.getByRole("button", { name: /^Editar b =/ }),
+    ).toHaveCount(1);
+    await expect(section.getByRole("img", { name: /^H\(x1\) =/ })).toHaveCount(
+      1,
+    );
     await section
       .getByRole("button", { name: "Selecionar armadura N2", exact: true })
       .locator("circle")
@@ -645,7 +992,7 @@ for (const layers of [1, 3]) {
       JSON.parse(await readFile((await (await event).path())!, "utf8")),
     ).toEqual(project);
 
-    for (const key of ["b", "h"]) {
+    for (const key of ["b"]) {
       await section
         .getByRole("button", { name: new RegExp(`^Editar ${key} =`) })
         .click();
@@ -735,7 +1082,7 @@ test("composição N2/N3 sinaliza projeção sem espaço sem deslocar níveis de
     piece = project.pieces[0];
   Object.assign(piece.geometry, {
     width: 500,
-    height: 600,
+    height: 260,
     length: 250,
     cover: 40,
   });
@@ -745,7 +1092,7 @@ test("composição N2/N3 sinaliza projeção sem espaço sem deslocar níveis de
     stitchCount: 4,
     tieCount: 7,
   });
-  Object.assign(piece.design, { lowerStitchCount: 1, tieLayers: 3 });
+  Object.assign(piece.design, { lowerStitchCount: 0, tieLayers: 3 });
   await page.addInitScript(
     (raw) => localStorage.setItem("consolostruct.project.v1", raw),
     JSON.stringify(project),
@@ -758,14 +1105,17 @@ test("composição N2/N3 sinaliza projeção sem espaço sem deslocar níveis de
   await expect(page.locator("#piece-drawing")).toContainText(
     "N2 sem espaço no contorno projetado",
   );
+  await expect(page.locator("#piece-drawing")).not.toContainText(
+    "N2I sem altura suficiente",
+  );
   const centers = await page
     .locator(".steel-N2 circle")
     .evaluateAll((nodes) => nodes.map((n) => Number(n.getAttribute("cy"))));
-  const layout = tieLayout(piece),
-    levels = [
-      ...upperStitchLayout(piece, layout).levels,
-      layout.dPrime + (5 * layout.d) / 6,
-    ];
+  const levels = sectionBars(
+    piece,
+    buildDetail(piece),
+    stirrupLayout(piece).positions[0],
+  ).stitches.map((s) => s.depth);
   const scale = Math.min(
     480 / (piece.geometry.columnWidth + piece.geometry.length),
     340 / (piece.geometry.height + 80),
@@ -775,4 +1125,74 @@ test("composição N2/N3 sinaliza projeção sem espaço sem deslocar níveis de
   centers.forEach((y, i) =>
     expect(y).toBeCloseTo(140 + levels[Math.floor(i / 2)] * scale, 8),
   );
+});
+
+test("seção A–A avisa quando a costura inferior solicitada não cabe", async ({
+  page,
+}) => {
+  const project = exampleProject();
+  const piece = project.pieces[0];
+  Object.assign(piece.geometry, { height: 260, cover: 40, loadOffset: 95 });
+  piece.design.lowerStitchCount = 2;
+  expect(buildDetail(piece).issues).toContainEqual(
+    expect.objectContaining({ code: "zone-lower" }),
+  );
+  await page.addInitScript(
+    (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+    JSON.stringify(project),
+  );
+  await page.goto("/");
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Seção A–A", exact: true })
+    .click();
+  const drawing = page.locator("#piece-drawing");
+  await expect(
+    drawing.getByText("N2I sem altura suficiente para distribuir as barras."),
+  ).toBeVisible();
+  await expect(drawing.locator(".steel-N2 circle")).toHaveCount(
+    2 * piece.rebar.stitchCount,
+  );
+});
+
+test("seção A–A da peça padrão exibe N2I nas profundidades do detalhe e aponta a interferência no canto", async ({
+  page,
+}) => {
+  const project = exampleProject();
+  const piece = project.pieces[0];
+  await page.addInitScript(
+    (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+    JSON.stringify(project),
+  );
+  await page.goto("/");
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Seção A–A", exact: true })
+    .click();
+  const drawing = page.locator("#piece-drawing");
+  await expect(drawing).toContainText(
+    "N2 sem espaço no contorno projetado de N3",
+  );
+  await expect(drawing).not.toContainText("N2I sem altura suficiente");
+  const layout = tieLayout(piece);
+  const detailLowerDepths = buildDetail(piece)
+    .bars.filter((bar) => bar.family === "lower")
+    .map((bar) => bar.locations[0].z);
+  const upperCount = upperStitchLayout(piece, layout).levels.length;
+  const centers = await page
+    .locator(".steel-N2 circle")
+    .evaluateAll((nodes) => nodes.map((n) => Number(n.getAttribute("cy"))));
+  const scale = Math.min(
+    480 / (piece.geometry.columnWidth + piece.geometry.length),
+    340 / (piece.geometry.height + 80),
+    480 / piece.geometry.width,
+  );
+  const lowerCenters = centers.slice(upperCount * 2);
+  expect(lowerCenters).toHaveLength(detailLowerDepths.length * 2);
+  lowerCenters.forEach((y, i) => {
+    const depth = (y - 140) / scale;
+    expect(Math.abs(depth - detailLowerDepths[Math.floor(i / 2)])).toBeLessThan(
+      1e-9,
+    );
+  });
 });

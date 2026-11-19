@@ -27,8 +27,9 @@ As cotas permanecem orientadas à tela. Quando sua projeção fica reduzida a um
 - O contorno trapézio de pontos (0,0), (L,0), (L,−h₂), (0,−h) é extrudado na largura b. O volume coincide com b L (h+h₂)/2.
 - O trecho de suporte usa P na direção X. Sua profundidade ilustrativa é b, pois o esquema do projeto não informa outra dimensão transversal do pilar. Sua altura é apenas um trecho de contexto, sem representar a altura integral do elemento.
 - O retângulo do apoio indica a área efetiva de transmissão. A altura da linha de H é usada para a origem das setas; ela não é transformada em uma espessura física desconhecida do aparelho.
-- N1 usa as posições dos ramos/camadas e a altura útil do mesmo arranjo considerado pelo motor. São exibidos eixos longitudinais, sem inventar a geometria das ancoragens.
-- N2/N2b mantêm sua representação esquemática. N3 usa o estribo externo e, com quatro ramos, o grampo interno da geometria de detalhamento. N4 construtiva usa os mesmos eixos com arcos da forma de fabricação, em duas ou quatro posições. A positiva do modo viga é uma família separada P1. N5/N6 não têm representação completa. A visualização não certifica o arranjo ou libera execução.
+- As armaduras são as barras físicas da fonte única do detalhamento (`detailing/rebarModel.ts`), com os mesmos eixos, arcos, alças, dobras e ganchos: N1 em alça ou reta com gancho de suporte, N1/P1 do modo viga, N2/N2I com a penetração no suporte e o alcance frontal do detalhamento, N3/N3G, N4, a barra transversal soldada TS e os pinos. Uma alça descartada no detalhamento também não aparece no 3D. N5/N6 não têm representação completa. A visualização não certifica o arranjo ou libera execução.
+
+Os ganchos de fechamento dos estribos aparecem na forma nominal de fabricação. A compatibilização das extremidades que se sobrepõem fora do plano requer conferência no projeto de conjunto.
 
 ## Cargas e interpretação
 

@@ -12,6 +12,7 @@ import { buildSceneModel } from "../src/visualization/model3d";
 import { calculate } from "../src/domain/engine";
 import { stirrupLayout } from "../src/domain/theory";
 import { concreteProfile, bottomOffsetDepth } from "../src/domain/profile";
+import { newPiece } from "../src/domain/model";
 import { shortFixture } from "./fixtures";
 
 const points = (
@@ -46,7 +47,7 @@ describe("Revisão PR #41 — interferência N3/N3G", () => {
       t = transverseGeometry(p),
       layout = stirrupLayout(p);
     expect(t.clearance).toBe(22.8);
-    expect(t.innerShift).toBe(29.1);
+    expect(t.innerShift).toBe(p.rebar.stirrupDiameter);
     expect(t.problems).toEqual([]);
     expect(t.sections.filter((s) => !s.internal).map((s) => s.x)).toEqual(
       layout.positions,
@@ -127,7 +128,8 @@ describe("Revisão PR #41 — interferência N3/N3G", () => {
     expect(
       d.issues.filter(
         (i) =>
-          i.code.startsWith("transverse-") ||
+          (i.code.startsWith("transverse-") &&
+            i.code !== "transverse-tie-clash") ||
           i.code.startsWith("shape-stirrup"),
       ),
     ).toEqual([]);
@@ -178,7 +180,8 @@ describe("Revisão PR #41 — interferência N3/N3G", () => {
   it("detecta a colisão em distribuição congestionada, sem alterar entradas ou reduzir folga", () => {
     const p = shortFixture();
     p.rebar.stirrupBranches = 4;
-    p.rebar.stirrupCount = 8;
+    p.geometry.length = 80;
+    p.rebar.stirrupCount = 4;
     const before = structuredClone(p),
       t = transverseGeometry(p),
       d = buildDetail(p);
@@ -199,20 +202,21 @@ describe("Revisão PR #41 — interferência N3/N3G", () => {
     const p = shortFixture();
     p.rebar.stirrupBranches = 4;
     p.rebar.stirrupCount = 1;
-    p.geometry.length = 70;
+    p.geometry.length = 60;
     const d = buildDetail(p);
     expect(d.issues).toContainEqual(
       expect.objectContaining({ code: "transverse-cover", severity: "error" }),
     );
   });
 
-  it("aumentar agregado aumenta afastamento, sem mexer no passo de cálculo", () => {
+  it("aumentar agregado exige mais folga entre pares sem mexer no passo de cálculo ou na justaposição", () => {
     const p = shortFixture();
     p.rebar.stirrupBranches = 4;
+    p.rebar.stirrupCount = 8;
     const layout = stirrupLayout(p),
       old = calculate(p);
-    p.design.aggregate = 32;
-    expect(transverseGeometry(p).innerShift).toBeCloseTo(44.7, 10);
+    p.design.aggregate = 50;
+    expect(transverseGeometry(p).innerShift).toBe(p.rebar.stirrupDiameter);
     expect(stirrupLayout(p)).toEqual(layout);
     expect(calculate(p).values.stirrupProvided).toBe(
       old.values.stirrupProvided,
@@ -220,5 +224,81 @@ describe("Revisão PR #41 — interferência N3/N3G", () => {
     expect(
       buildDetail(p).issues.some((i) => i.code === "transverse-clearance"),
     ).toBe(true);
+  });
+
+  it("CA1–CA4: N3G fechado, justaposto, envolvendo N1 sem colisão e em ordem monotônica (1 a 8 posições)", () => {
+    const p = newPiece(1);
+    p.rebar.stirrupBranches = 4;
+    p.design.frontAnchor = "welded";
+    const t = transverseGeometry(p),
+      d = buildDetail(p);
+    expect(t.problems).toEqual([]);
+    expect(
+      d.issues.filter(
+        (i) =>
+          i.code.startsWith("transverse-") ||
+          i.code.startsWith("shape-stirrup"),
+      ),
+    ).toEqual([]);
+    expect(
+      t.sections.filter((s) => s.internal).every((s) => s.path.valid),
+    ).toBe(true);
+    const n3Count = d.bars
+      .filter((b) => b.family === "stirrup")
+      .reduce((sum, b) => sum + b.quantity, 0);
+    const n3gCount = d.bars
+      .filter((b) => b.family === "stirrupInner")
+      .reduce((sum, b) => sum + b.quantity, 0);
+    expect(n3Count).toBe(5);
+    expect(n3gCount).toBe(5);
+    // CA3: altura dentro do par varia apenas por bottomOffsetDepth
+    const profile = concreteProfile(p);
+    for (let i = 0; i < t.sections.length; i += 2) {
+      const outer = t.sections[i],
+        inner = t.sections[i + 1];
+      expect(Math.abs(outer.x - inner.x)).toBeCloseTo(
+        p.rebar.stirrupDiameter,
+        10,
+      );
+      expect(outer.height - inner.height).toBeCloseTo(
+        bottomOffsetDepth(profile, outer.x, t.stirrupOffset) -
+          bottomOffsetDepth(profile, inner.x, t.stirrupOffset),
+        10,
+      );
+    }
+    // CA4: ordem longitudinal monotônica para 1 a 8 posições, imune a ±1e-9 mm
+    for (let count = 1; count <= 8; count++) {
+      const q = newPiece(1);
+      q.design.frontAnchor = "welded";
+      q.rebar.stirrupBranches = 4;
+      q.rebar.stirrupCount = count;
+      const xs = transverseGeometry(q).sections.map((s) => s.x);
+      for (let i = 1; i < xs.length; i++)
+        expect(xs[i]).toBeGreaterThan(xs[i - 1]);
+      q.geometry.length += 1e-9;
+      const xsPlus = transverseGeometry(q).sections.map((s) => s.x);
+      xsPlus.forEach((x, i) => expect(x).toBeCloseTo(xs[i], 8));
+    }
+    // CA2: caso construído com sobreposição N1 x N3/N3G gera transverse-tie-clash
+    const clash = newPiece(1);
+    clash.rebar.stirrupBranches = 4;
+    clash.design.frontAnchor = "welded";
+    clash.rebar.stirrupDiameter = 8;
+    expect(buildDetail(clash).issues).toContainEqual(
+      expect.objectContaining({
+        code: "transverse-tie-clash",
+        severity: "error",
+      }),
+    );
+    // Menos de 4 barras na 1ª camada gera transverse-inner-tie
+    const few = newPiece(1);
+    few.rebar.stirrupBranches = 4;
+    few.rebar.tieCount = 3;
+    expect(buildDetail(few).issues).toContainEqual(
+      expect.objectContaining({
+        code: "transverse-inner-tie",
+        severity: "error",
+      }),
+    );
   });
 });

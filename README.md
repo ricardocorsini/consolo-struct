@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-3448D1" alt="Licença MIT" /></a>
-  <img src="https://img.shields.io/badge/aplicativo-0.7.1-FF8A3D" alt="Aplicativo 0.7.1" />
+  <img src="https://img.shields.io/badge/aplicativo-0.8.0-FF8A3D" alt="Aplicativo 0.8.0" />
   <a href="https://github.com/ricardocorsini/consolo-struct/actions/workflows/ci.yml"><img src="https://github.com/ricardocorsini/consolo-struct/actions/workflows/ci.yml/badge.svg?branch=master" alt="Integração contínua" /></a>
 </p>
 
@@ -82,7 +82,7 @@ Abra o endereço informado pelo Vite. Após gerar `dist/`, também é possível 
 
 ## Escopo de engenharia
 
-O **motor 0.5.0**, política **LC-ELU-2026.2**, trata o ELU estático local de consolos simples de concreto armado. Os critérios implementados se apoiam nas NBR 6118:2026 e 9062:2017 e nos modelos documentados de Araújo e El Debs. A versão do aplicativo e a do motor são identificações independentes.
+O **motor 0.6.0**, política **LC-ELU-2026.2**, trata o ELU estático local de consolos simples de concreto armado. Os critérios implementados se apoiam nas NBR 6118:2026 e 9062:2017 e nos modelos documentados de Araújo e El Debs. A versão do aplicativo e a do motor são identificações independentes.
 
 Para `1 < a/d ≤ 2`, o modo automático calcula a peça como viga em balanço (flexão simples e cisalhamento pelo Modelo I, com costura até 600 mm de altura e pele a conferir acima disso), sem ELS, fissuração ou flecha.
 

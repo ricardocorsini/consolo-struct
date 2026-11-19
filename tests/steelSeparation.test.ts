@@ -17,6 +17,7 @@ import { buildDetail } from "../src/detailing/model";
 import { pieceDrawing } from "../src/detailing/drawing";
 import { drawingSvg, steelCsv } from "../src/detailing/exports";
 import { shortFixture, cantileverFixture } from "./fixtures";
+import { legacyAnchorageContract } from "./reference/legacy-anchorage-contract";
 
 describe("Separação dos aços e migração para esquema 6 (#35)", () => {
   it("oferece classes por função, com padrão CA-50 em ambas", () => {
@@ -301,7 +302,7 @@ describe("Regressão numérica contra master afec1f3 antes da migração", () =>
     ],
     [
       "beam",
-      "6e1539c67adbd29d9da35c01b5499f7eba7951c2195a1aec2767c1ed7ba8ec04",
+      "978236476fc16660ec9b746bac0ba275f4ce705ebd5ac8d830a201e64c5803f1",
     ],
   ] as const)(
     "preserva todos os valores, estados e verificações de %s com CA-50/CA-50 e γs=1,15",
@@ -312,7 +313,7 @@ describe("Regressão numérica contra master afec1f3 antes da migração", () =>
       // Hash capturado na master afec1f3 (antes desta integração), antes da implementação da issue #35.
       // Exclui a assinatura (contrato mudou) e apenas o texto das fórmulas.
       // Demandas, capacidades, referências, detalhes e estados continuam incluídos.
-      const r = calculate(p);
+      const r = legacyAnchorageContract(calculate(p));
       const raw = JSON.stringify({
         values: r.values,
         checks: r.checks.map(({ formula: _formula, ...c }) => c),

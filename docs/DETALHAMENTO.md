@@ -1,6 +1,6 @@
 # Detalhamento de consolos - versão 0.5
 
-O módulo produz desenhos locais soltos: elevação de armaduras, planta dos tirantes, cortes A-A e B-B, formas de dobramento, relação de barras e resumo de aço. Os arquivos não recebem folha A1 nem formato obrigatório. Cada peça conserva sua identificação, quantidade, revisão e notas.
+O módulo produz elevação de armaduras, planta dos tirantes, cortes A-A e B-B, relação de aço com formas de dobramento e resumo de aço. Cada peça conserva sua identificação, quantidade, revisão e notas. A prancha tem dimensões livres.
 
 ## Usar
 
@@ -14,26 +14,55 @@ O módulo produz desenhos locais soltos: elevação de armaduras, planta dos tir
 
 - O modelo de cálculo continua em mm/N/MPa. A saída de detalhamento converte as coordenadas para **cm**. O DXF declara `$INSUNITS=5`, sem depender de conversão manual no CAD.
 - As bitolas permanecem em **mm**. Dimensões de formas, posições, mandris, cobrimentos e comprimentos de corte são em **cm**.
-- O DXF contém LINE, ARC, CIRCLE e TEXT editáveis, com camadas FORMAS, ARMADURAS, COTAS, TEXTOS, EIXOS e ALERTAS. As cotas são linhas e textos explícitos; não são restrições paramétricas nativas do CAD.
-- A geometria e as formas estão a 1:1 em cm no DXF. O PDF usa uma página de dimensão livre por tipo e uma página adicional de resumo quando todos são gerados. Sua escala nominal é 1:10 ao imprimir em tamanho real, sem “ajustar à página”.
-- Os cortes identificam sua coordenada x. A-A atravessa o primeiro estribo vertical; B-B atravessa o centro do apoio. As costuras horizontais aparecem como seções de barras onde cruzam o plano do corte.
+- O DXF contém polilinhas editáveis para as retas e dobras de armadura. O campo 43 de `LWPOLYLINE` representa a bitola em cm nas vistas e a espessura de traço ajustada nos esquemas da tabela. O campo 42 conserva o arco no eixo, com sentido ajustado ao Y crescente do CAD. Os cortes circulares usam `CIRCLE` com raio físico. O desenho usa as camadas FORMAS, ARMADURAS, COTAS, TEXTOS, EIXOS e ALERTAS. As cotas são linhas e textos explícitos. [Referência do formato DXF](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-748FC305-F3F2-4F74-825A-61F04D757A50.htm).
+- Na tela, no SVG e no PDF, a espessura do traço nas vistas corresponde à bitola na escala do desenho. Os cortes circulares usam preenchimento sem borda adicional. As extremidades cortadas da barra ficam no término do eixo. Quando uma vista projeta de perfil uma dobra ou um trecho perpendicular, o disco físico pode aparecer além da extremidade da projeção do eixo. [Comparativo de elevação e seção A–A](images/armaduras-escala-real.png).
+- As vistas estão a 1:1 em cm no DXF. O PDF usa uma página de dimensão livre por tipo e uma página adicional de resumo quando todos são gerados. A escala nominal das vistas é 1:10 ao imprimir a 100%.
+- Os cortes identificam sua coordenada x. A–A atravessa o primeiro estribo vertical e B–B atravessa o centro do apoio. As costuras horizontais aparecem nos cruzamentos com o plano ou como segmentos quando pertencem ao plano. O corte usa o perímetro de N2/N2I conforme a convenção de representação dos ganchos.
 - As barras do pilar não são inferidas: o suporte aparece como fragmento, com indicação de interrupção. Sua compatibilização pertence ao projeto de conjunto.
+
+Na elevação, **P** mede o pilar e **A** vai da face do pilar ao eixo nominal do apoio. Ambas ficam no topo. **L** mede o consolo na base. À direita, **H2** mede a altura na ponta, **H1** mede o desnível entre a ponta e a face do pilar e **H** mede a altura total. A cota H1 aparece quando H é maior que H2.
+
+Na planta, **L** aparece abaixo e **b** mede a largura na lateral. Nos dois cortes, **b** se refere aos vértices da base real. **H(x1)** indica a altura de concreto na estação do primeiro estribo em A–A. **H(B-B)** indica a altura de concreto no eixo nominal do apoio em B–B. As cotas acompanham a geometria corrente em SVG, DXF e PDF.
+
+## Posicionamento das anotações
+
+As cotas ocupam trilhas externas às vistas. Quando o texto é mais largo que o espaço entre os traços, ele fica fora do vão, ligado à cota por um trecho curto. As linhas de extensão preservam a referência aos vértices e recebem uma interrupção quando passariam sobre um texto de outra trilha.
+
+Na planta, cada camada adicional recebe uma única chamada com as marcas das suas barras. Elevação, cortes, planta, Relação do Aço e notas usam o espaço ocupado pelas vistas, cotas e legendas para calcular as folgas entre blocos. As quebras de linha da tabela e das notas acompanham a largura medida do texto.
+
+O layout estima caixas de Arial/Helvetica com margem de 10% sobre a largura dos caracteres. O DXF declara Arial no estilo Standard e converte o tamanho do texto para a altura de maiúscula. Tela, SVG, DXF e PDF usam as mesmas posições e rotações. Os testes verificam as caixas com código geométrico e com o **getBBox()** do navegador.
+
+[Comparação antes e depois em três geometrias](images/prancha-anticolisao.webp)
 
 ## Tirante simples e duplo
 
 **Duplo** significa duas camadas de tirante na mesma face do suporte; não representa consolos nos dois lados de um pilar. A contagem de ramos e a bitola são os dados físicos já usados no motor. Alterar o número de camadas recalcula o centroide e a altura útil.
 
+Peças novas usam N1 reto com barra transversal soldada TS na ponta e gancho vertical de 90° para baixo no suporte. A forma de N1 contém a reta longitudinal, o arco e a ponta reta no mesmo plano. A elevação, os cortes, o 3D, a prancha e o comprimento de corte usam esse percurso. [Comparação antes e depois](images/n1-ancoragem-padrao.png).
+
+A extremidade de N1 termina em `x = L − c`. O eixo de TS fica em `x = L − c − φTS/2`, abaixo do eixo de N1 na camada. A diferença de profundidade entre os eixos é `(φN1 + φTS)/2`. TS termina com cobrimento lateral `c` nas duas faces. O detalhamento aponta falta de cobrimento, invasão do quinto superior ou interferência com a costura N2. A sugestão descarta esses arranjos.
+
 Uma alça horizontal em U fornece **dois ramos longitudinais**. Portanto, quatro ramos não são quatro alças: são duas barras físicas em U, distribuídas conforme as camadas escolhidas. Cada camada deve ter contagem par. O quadro conta barras físicas. As camadas e formas diferentes têm posições próprias, com o diâmetro interno frontal da segunda camada configurável; zero repete o valor principal.
 
-As alças de uma mesma camada são aninhadas, respeitando mandris, cobrimento, distância livre e espaçamento máximo entre ramos. Uma combinação que não cabe recebe pendência impeditiva, sem diminuir o mandril para produzir uma aparência de solução. Na ancoragem soldada, os ramos retos e a barra transversal são quantificados separadamente; as soldas precisam de sua especificação e verificação.
+As alças de uma mesma camada são aninhadas, respeitando mandris, cobrimento, distância livre e espaçamento máximo entre ramos. Uma combinação que não cabe recebe pendência impeditiva (`nested-loops`), sem diminuir o mandril para produzir uma aparência de solução, e o motor reprova `loopNesting` com a mesma geometria. A alça que não cabe não é descartada: é desenhada e quantificada na largura mínima que comporta sua curva (`D + φ` entre eixos), sobreposta às vizinhas, para que todas as vistas e a relação do aço mostrem os ramos declarados. Na ancoragem soldada, os ramos retos e a barra transversal são quantificados separadamente; as soldas precisam de sua especificação e verificação.
+
+Os campos de projeção e ponta reta do gancho de N1 e de penetração de N2/N2I aceitam zero para cálculo automático. A projeção automática de N1 considera a ancoragem necessária e o espaço no suporte. A ponta reta automática usa `8φ`. Os valores manuais do gancho são conferidos no espaço representado. Uma penetração manual de costura maior que a necessária é adotada até o limite no eixo. Valores menores de costura são elevados ao mínimo calculado, se houver espaço. Os valores informados são preservados ao abrir projetos do esquema 6.
+
+Com ganchos de N1 em mais de uma camada, cada camada sucessiva aproxima sua perna vertical da face do pilar pelo mesmo passo do modo viga. A projeção manual mede o eixo da primeira camada. A projeção automática reserva o espaço para as camadas ocupadas dentro do comprimento disponível. O quadro de aço usa o percurso de cada barra, incluindo os dois ganchos físicos de cada alça. A prancha identifica as camadas com projeção ou espaço insuficiente.
+
+N2, N2I e N4 usam o espaço entre a face do suporte e o limite do eixo `P − c − φ/2`. A memória também mostra a cota nominal `P − c`. Quando o comprimento necessário excede o limite no eixo, a verificação reprova e o desenho mostra o trecho que cabe no suporte. Os comprimentos desenvolvido e de corte incorporam o percurso e os ganchos adotados. Veja [Ancoragens e geometria](CRITERIOS-DE-CALCULO.md#ancoragens-e-geometria).
+
+A prancha identifica os ramos detalhados e indica a quantidade informada quando há diferença. O quadro, a planta e o 3D usam as barras que o gerador conseguiu posicionar. O CSV geral conserva os dados do cálculo e acrescenta os ramos detalhados de N1, a massa total de aço detalhado e a taxa de aço por metro cúbico de concreto. O tratamento de divergências pelo motor é acompanhado na issue #64.
 
 ## N3 de dois/quatro ramos e N4 construtiva
 
-A guia Armaduras permite escolher **2 ou 4 ramos efetivos de N3 por posição**. A distribuição longitudinal é a mesma do cálculo. Cada posição produz um estribo fechado externo; com quatro ramos, também um grampo interno em U com duas pernas e ganchos de 135°, da mesma bitola. O quadro registra separadamente as duas barras físicas (N3 e N3G), com comprimentos próprios em cada seção.
+A guia Armaduras permite escolher **2 ou 4 ramos efetivos de N3 por posição**. A distribuição longitudinal é a mesma do cálculo. Cada posição produz um estribo fechado externo; com quatro ramos, também um estribo interno fechado com duas pernas e ganchos de 135°, da mesma bitola, envolvendo as duas barras centrais da 1ª camada de N1. O quadro registra separadamente as duas barras físicas (N3 e N3G), com comprimentos próprios em cada seção.
 
 **N4 · Armadura construtiva** é obrigatória, com duas ou quatro barras derivadas de N3 e Ø8 mm inicial editável. Substitui o porta-estribos opcional; sua configuração antiga não permanece no fluxo ativo nem gera barras adicionais. N4 não participa de resistência ou sugestão automática.
 
-O eixo longitudinal acompanha a poligonal inferior com afastamento normal baseado em cobrimento, bitola N3, metade da bitola N4 e folga para o canto arredondado do estribo. As posições transversais são simétricas, uma por vértice inferior interno. O percurso se prolonga no suporte, com cobrimento posterior, e dobra verticalmente na ponta, com mandril da própria bitola e ponta reta mínima geométrica de 8φ. O gerador não interpreta essa ponta como dimensionamento resistente/ancoragem certificada da N4.
+O eixo longitudinal acompanha a poligonal inferior com afastamento normal baseado em cobrimento, bitola N3, metade da bitola N4 e folga para o canto arredondado do estribo. As posições transversais são simétricas, uma por vértice inferior interno. No suporte, o percurso usa o comprimento calculado de N4 com o limite de cobrimento no eixo. Na frente, a barra dobra verticalmente com o mandril da própria bitola. O motor verifica o percurso a partir da borda interna do aparelho de apoio e o espaço para a ponta reta mínima de 8φ abaixo de N1.
+
+No arranjo convencional, o eixo da ponta vertical de N4 fica em `L − c − φN4/2`. Na peça padrão, o eixo está em 221 mm e o cobrimento livre frontal é de 25 mm para qualquer bitola de N1. No modo **Armado como viga**, o eixo é posicionado para dentro da perna frontal de N1 da camada mais interna, com afastamento entre eixos de `(φN1 + φN4)/2`. [Comparação antes e depois](images/n4-cobrimento-frontal.png).
 
 `detailing/transverse.ts` é a fonte comum das formas N3/N4, projeções da modelagem, seções, 3D e quadros. Arcos e retas do eixo determinam o desenvolvimento; o corte da N4 nos desenhos considera interseções reais do percurso com o plano da seção. A quantidade do tipo multiplica comprimento e massa uma única vez.
 
@@ -56,9 +85,19 @@ As formas de estribos verticais acompanham a face inferior inclinada com cobrime
 
 ## Quadro de aço
 
-Cada linha contém posição, aço, bitola, barras por peça, barras totais, C unitário, C total e massa total. O resumo agrupa por classe de aço e bitola. A quantidade do tipo multiplica os quantitativos uma única vez. O resumo geral soma todos os tipos; a identificação completa de uma posição é, por exemplo, **C01/N1**.
+O quadro e o CSV de detalhamento usam quantidade, comprimento e massa armazenados por posição. O CSV do projeto traz o volume de concreto e o aço detalhado por peça, além dos totais do tipo. No resumo geral de todos os consolos, a taxa de aço é a massa total dividida pelo volume total de concreto.
+
+O CSV geral e o PDF da memória exibem o comprimento desenvolvido de N4 em centímetros com três casas decimais. O valor de corte C e a massa usam o arredondamento de fabricação adotado na relação do aço.
+
+Cada linha contém posição, aço, bitola, barras por peça, barras totais, C unitário, C total, massa total e o **Desenho esquemático da armadura**. O resumo agrupa por classe de aço e bitola. A quantidade do tipo multiplica os quantitativos uma única vez. O resumo geral soma todos os tipos. A identificação completa de uma posição é, por exemplo, **C01/N1**.
+
+O esquema traça o eixo de cada barra com a mesma escala nos dois sentidos, ajustada ao espaço da célula. Use as medidas reais indicadas em cm, com os trechos retos na ordem do percurso, os ângulos das dobras e o diâmetro interno `D`. Nas alças em U, a célula mostra a planta e, quando há gancho no suporte, sua vista lateral com a projeção e a ponta reta. Os esquemas acompanham a prancha em SVG, DXF e PDF. O CSV traz os quantitativos e a observação em texto. [Comparativo de uma prancha antes e depois](images/relacao-aco-desenhos.png).
+
+Quando a relação tem muitas posições, as linhas são distribuídas em blocos lado a lado, com cabeçalhos repetidos. Cada bloco permanece na mesma prancha para atender ao limite de altura da página PDF.
 
 A massa usa área circular e densidade de 7 850 kg/m³, com o comprimento de corte adotado. Não inclui perdas de oficina, reserva de compra, emendas adicionais ou barras do suporte não cadastradas. O CSV usa separador ponto e vírgula, decimal com vírgula e proteção contra fórmulas em campos editáveis.
+
+Abaixo do resumo, a prancha informa o volume de concreto por peça e do tipo (m³) e a taxa de aço (kg/m³ = massa de aço da peça / volume de concreto da peça). O volume é o mesmo `pieceVolume` da barra de status, da lista de peças e do CSV do projeto, inclusive com o recorte do concreto excedente. O painel lateral do Detalhamento, a memória em tela e o PDF da memória mostram os mesmos valores.
 
 ## Referências gráficas analisadas
 
@@ -70,7 +109,7 @@ O módulo recalcula a peça atual e acrescenta verificações de fabricação. F
 
 Os pinos opcionais têm espaçamento entre eixos e deslocamento transversal configuráveis, com cotas no corte. Zero no espaçamento ativa distribuição simétrica dentro do apoio. São verificadas as interferências geométricas com tirante e estribos verticais. São desenhados e quantificados com embutimento e espera; sua resistência, ancoragem e ligação à peça apoiada não são dimensionadas por este módulo. A configuração com armaduras especiais de suspensão ou fendilhamento não possui ainda suas formas completas de fabricação: recebe pendência impeditiva e informa a ausência no quadro. O detalhamento do pilar e do aparelho de apoio completo, soldas qualificadas, ganchos semicirculares de barras lisas CA-25, dentes Gerber e consolos nas duas faces permanecem fora do gerador local.
 
-As vistas 2D/3D de modelagem continuam esquemáticas, com etiquetas de famílias; as posições de fabricação e os comprimentos desta versão estão na aba Detalhamento. O motor estrutural é o 0.3.0; esta entrega não amplia seu escopo para análise espacial ou global.
+As vistas 2D/3D de modelagem usam as mesmas barras físicas e referências de cotas do detalhamento. As vistas e a prancha representam bitolas, eixos e dobras em escala geométrica. A aba Detalhamento reúne as posições de fabricação, os comprimentos e as cotas executivas. O motor estrutural 0.6.0 dimensiona a região local do consolo.
 
 ## Reproduzir exemplos e testar
 
@@ -86,8 +125,34 @@ O gerador de exemplos usa o carregador TypeScript do Vite já instalado no proje
 
 ## Disposição física do par N3/N3G
 
-Com quatro ramos, N3 e N3G ocupam planos longitudinais distintos. N3 conserva as estações e o passo anteriores. O grampo é deslocado para o interior por `Δx = φN3 + max(20 mm; φN3; 1,2·agregado)`, reutilizando a folga livre de N3 já adotada pelo gerador. O sentido muda na metade do comprimento para respeitar os cobrimentos nas duas extremidades. Cada grampo recebe altura e comprimento calculados na sua própria estação, incluindo a face inclinada/recortada e as pontas completas dos ganchos de 135°.
+Com quatro ramos, N3 e N3G ocupam planos longitudinais justapostos. N3 conserva as estações e o passo anteriores. O estribo interno fechado N3G é justaposto ao N3 (`Δx = φN3`), deslocado para o lado da ponta nas estações iniciais e para o lado do suporte na última estação, preservando ordem longitudinal monotônica e respeitando os cobrimentos nas duas extremidades. Sua largura é definida pelas duas barras centrais da 1ª camada de N1, com as N4 internas posicionadas nos cantos inferiores de N3G. Cada peça recebe altura e comprimento calculados na sua própria estação, incluindo a face inclinada/recortada e as pontas completas dos ganchos de 135°.
 
-A seção identifica a projeção do par e suas estações. As quatro N4 são projetadas no plano do ramo que as contém; não se apresentam os dois estribos como se ocupassem uma única seção física. Elevação, planta, 3D, formas e quantitativos usam as mesmas coordenadas. As duas peças continuam compondo quatro ramos por par, sem mudar demanda ou passo de cálculo; o maior passo da distribuição dos grampos não excede o passo externo quando o arranjo cabe.
+A seção A–A da modelagem e o corte A-A do detalhamento cortam na estação do 1º estribo (`x1`) e identificam a projeção do par. As quatro N4 são projetadas no plano do ramo que as contém. Elevação, planta, 3D, formas e quantitativos usam as mesmas coordenadas. A folga livre `max(20 mm; φN3; 1,2·agregado)` é verificada entre pares N3/N3G consecutivos.
 
-Falta de espaço longitudinal, invasão do cobrimento ou colisão de trechos/curvas de N3/N3G geram erros impeditivos específicos. Não se diminui a folga, o diâmetro ou o mandril, nem se move N1 ou N4 para esconder o problema. O arranjo continua sujeito à conferência executiva; a capacidade numérica de quatro ramos não aprova um detalhamento congestionado. Consulte [a revisão do PR #41](VALIDACAO-REVISAO-PR41.md).
+Com uma única posição, o corte usa o estribo no meio do comprimento, e N3G fica do lado do suporte; cada N4 continua no plano de seu estribo. O aviso da seção considera os erros de fabricação de todas as estações, inclusive dobras inválidas longe do corte. A verificação do contorno contra N1 desconta apenas o erro numérico da aproximação dos arcos por segmentos, sem tolerância geométrica para penetração entre barras. As pontas de fechamento sobrepostas fora do plano conservam a convenção de projeção de fabricação de `closedStirrup` e exigem conferência executiva.
+
+Se a primeira camada tiver menos de quatro ramos físicos de N1, a largura de N3G não é definida. Uma alça que não cabe continua desenhada (ver “Tirante simples e duplo”) e N3G acompanha os ramos desenhados, sob o erro `nested-loops`. Nesse caso, N3G e suas duas N4 internas não são geradas nem contabilizadas; permanecem N3 externo e suas duas N4, com erro impeditivo. A escolha de quatro ramos continua salva e o cálculo resistente não é modificado por essa omissão: o erro precisa ser resolvido antes de usar o detalhamento.
+
+Falta de espaço longitudinal entre pares, invasão do cobrimento, ausência das N1 centrais na 1ª camada ou colisão de N3/N3G com N1 ou entre pares geram erros impeditivos específicos (exibidos também na seção A–A da modelagem). Não se diminui a folga, o diâmetro ou o mandril, nem se move N1 ou N4 para esconder o problema. O arranjo continua sujeito à conferência executiva; a capacidade numérica de quatro ramos não aprova um detalhamento congestionado. Para o registro histórico da regra anterior, consulte [a revisão do PR #41](VALIDACAO-REVISAO-PR41.md).
+
+## Fonte única das armaduras
+
+Cada posição é instanciada uma única vez por `buildRebarGeometry` com suas barras físicas: N1 em alça (plano horizontal, com os dois ganchos de suporte nos planos verticais de cada ramo), N1 reta (um eixo por ramo, com gancho), N1/P1 do modo viga, N2/N2I (contorno fechado no plano horizontal do seu nível), N3/N3G (plano transversal da sua estação), N4 (plano vertical de cada vértice inferior de N3/N3G), TS (ao longo da largura) e pinos (verticais, um por centro). A elevação lateral, a planta, os cortes A–A e B–B, a vista 3D, a relação e o resumo do aço são projeções ou cortes dessas barras; o número de barras físicas de cada posição é igual à quantidade declarada no quadro.
+
+O Corte B–B, no eixo da carga, usa o mesmo corte exato do A–A: no modo viga, N1 aparece nas posições reais e P1 é desenhada; costuras que terminam antes do eixo não aparecem; pinos aparecem no seu próprio plano. A planta projeta as alças com seus arcos, as dobras verticais e os ganchos na sua extensão em planta, e os estribos, N4 e P1 tracejados. A vista 3D inclui TS, pinos, os ganchos de suporte de N1, as alças e as dobras reais. N2 e N2I usam a penetração efetiva e o alcance frontal do detalhamento. N5 e N6 sem geometria definida geram pendência impeditiva.
+
+## Paridade entre quantidade indicada e desenhada
+
+Nenhuma barra declarada é descartada silenciosamente (issue #64). Alças que não cabem e costuras sem faixa disponível são desenhadas e quantificadas sobrepostas (na largura mínima da curva ou no ponto médio da faixa), com erro impeditivo. Quando uma quantidade declarada não pode ser detalhada de forma alguma (por exemplo, ramo ímpar em alça, N3G sem as N1 centrais, pino sem comprimento), os textos da prancha mostram a quantidade detalhada seguida de “detalhado(s) de N declarado(s) - CORRIGIR”, nunca a quantidade declarada sobre um desenho com menos barras.
+
+`validateRebarConsistency` (`src/detailing/consistency.ts`) roda em toda geração do detalhamento e compara, para N1, N2, N2I, N3, N3G, N4, P1, TS e pinos: a quantidade declarada nas entradas (ramos no caso de N1; uma alça conta dois), as barras físicas da fonte única, a soma das quantidades da relação do aço e a representação de cada barra na elevação, na planta, no 3D e nos cortes A–A e B–B, onde cada barra aparece exatamente quando seu percurso 3D alcança o plano do corte. Cada divergência vira um erro `parity-<família>-<escopo>` nas pendências, também nos arquivos exportados.
+
+## Coerência das projeções 2D
+
+A elevação e a seção A–A da modelagem compartilham `detailing/projection.ts` com os desenhos de detalhamento; esse módulo apenas agrupa as projeções de `detailing/rebarModel.ts`. N1 é projetada a partir das barras efetivamente geradas: uma alça descartada por falta de espaço não reaparece nas vistas, e o gancho de suporte já registrado no desenvolvimento aparece com sua curva e ponta. Barras com projeções coincidentes se sobrepõem; as marcas e quantidades identificam a composição.
+
+O corte de N1, N2/N2I e P1 usa as interseções dos segmentos e arcos com a primeira estação real de N3, inclusive quando há um único estribo. Assim, um corte na curva pode mudar a posição transversal de N1 ou a profundidade de N1/P1; uma barra que termina antes do plano deixa de aparecer. N2/N2I respeitam também o início da penetração no suporte. O corte de N2/N2I considera o contorno arredondado; as duas pontas de fechamento de `closedStirrup`, sobrepostas fora do plano na forma de fabricação, não são contadas como ramos adicionais.
+
+Na seção A–A, os círculos de N2/N2I usam os eixos do detalhamento. Nos trechos retos, a tangência de projeto entre N2/N2I e N3 aparece em escala. Próximo de uma dobra, a seção exibe a folga ou a interferência correspondente à posição física e avisa quando falta espaço no contorno de N3. Pinos e barras soldadas são representados por linhas de largura física quando estão no próprio plano de corte. A indicação de N3G/N4 identifica os planos adjacentes projetados.
+
+A cota d’ conserva o centroide nominal do cálculo, inclusive quando há barras omitidas por erro de fabricação ou dobras atravessadas pelo corte. Entradas, resultados resistentes, quantitativos, comprimentos, massas, versão do arquivo e formatos de exportação não são alterados por essa projeção. Uma posição rejeitada por forma inválida (por exemplo, N3 que não comporta o mandril) deixa de ser desenhada em todas as vistas, como já não constava do quadro. As saídas SVG/DXF/PDF de detalhamento recebem a mesma correção geométrica da tela.

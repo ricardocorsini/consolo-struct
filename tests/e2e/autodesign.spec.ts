@@ -35,7 +35,9 @@ test("sugestão reduz candidatos, passa nas verificações e mantém histórico 
   const before = await saved(page);
   await suggest(page);
   await expect(page.getByRole("status")).toContainText(
-    "Arranjo sugerido entre 28 candidatos",
+    // #64: smaller diameters whose loops do not nest are now refused, so the
+    // same 6 Ø10 winner is reached after more assessed candidates.
+    "Arranjo sugerido entre 40 candidatos",
   );
   await expect(page.locator(".result-summary").first()).toContainText(
     "Atende às verificações implementadas",
@@ -78,6 +80,28 @@ test("antigo vencedor com costura sem espaço é recusado com rótulo e sem edit
     page.getByRole("button", { name: "Desfazer", exact: true }),
   ).toBeDisabled();
   expect(await saved(page)).toEqual(before);
+});
+
+test("a sugestão sincroniza TS com N1 e mantém os dados da solda", async ({
+  page,
+}) => {
+  const p = shortFixture();
+  Object.assign(p.design, {
+    frontAnchor: "welded",
+    supportAnchor: "hook",
+    weldResistancePerBar: 12345,
+    weldSpecification: "Qualificação registrada para a solda.",
+  });
+  await open(page, p);
+  await suggest(page);
+  await expect(page.getByRole("status")).toContainText("Arranjo sugerido");
+  const result = (await saved(page)).pieces[0];
+  expect(result.rebar.tieDiameter).not.toBe(p.rebar.tieDiameter);
+  expect(result.design).toMatchObject({
+    weldResistancePerBar: p.design.weldResistancePerBar,
+    weldSpecification: p.design.weldSpecification,
+    weldedBarDiameter: result.rebar.tieDiameter,
+  });
 });
 
 test("falha do concreto é explicada nos dois temas em janela estreita, sem solução artificial", async ({

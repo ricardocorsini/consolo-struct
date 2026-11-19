@@ -126,6 +126,8 @@ export function createModelGroup(model: SceneModel, options: SceneOptions) {
       N3: options.dark ? 0xc0cad6 : 0x4b5a70,
       N4: options.dark ? 0xe5b875 : 0x98621c,
       P1: options.dark ? 0x78b1ff : 0x246ac2,
+      TS: options.dark ? 0x78b1ff : 0x246ac2,
+      PINO: options.dark ? 0xd59a8f : 0x9a4a3c,
     };
     for (const bar of model.steel) {
       const color = palette[bar.id];

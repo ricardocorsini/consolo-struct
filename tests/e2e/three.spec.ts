@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { exampleProject } from "../../src/domain/model";
+import { shortFixture } from "../fixtures";
 const open3d = async (page: import("@playwright/test").Page) => {
   await page
     .locator(".document-tabs")
@@ -126,6 +128,40 @@ test("edita a cota 3D e mantém elevação, arquivo e histórico sincronizados",
     page.locator(".dimension").filter({ hasText: "L =" }),
   ).toContainText("32,5");
 });
+test("H1 em 3D acompanha H2 e fica oculta na seção retangular", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await open3d(page);
+  const view = page.getByTestId("viewport-3d");
+  await view.getByLabel("Orientação 3D").selectOption("front");
+  const drop = view.getByRole("img", { name: /^H1 =/ });
+  await expect(drop).toHaveText("H1 = 20,0 cm");
+  await expect(drop).toBeVisible();
+  await expect(drop).not.toHaveAttribute("tabindex", "0");
+  await expect(
+    view.getByRole("button", { name: /Editar cota 3D heightDifference/ }),
+  ).toHaveCount(0);
+  const tip = view.getByRole("button", {
+    name: "Editar cota 3D tipHeight",
+    exact: true,
+  });
+  for (const value of ["39,98", "40"]) {
+    await tip.click();
+    await expect(view.locator('label[for="dimension-3d-value"]')).toHaveText(
+      "Altura na ponta H2",
+    );
+    const input = view.getByLabel("Valor da cota 3D");
+    await input.fill(value);
+    await input.press("Enter");
+    if (value === "40") await expect(drop).toHaveCount(0);
+    else {
+      await expect(drop).toHaveText("H1 = 0,02 cm");
+      await expect(drop).toBeVisible();
+    }
+  }
+});
+
 test("camadas e tema afetam também a vista 3D, sem alterar o projeto", async ({
   page,
 }) => {
@@ -156,7 +192,8 @@ test("camadas e tema afetam também a vista 3D, sem alterar o projeto", async ({
     .getByRole("button", { name: "Alternar tema", exact: true })
     .click();
   await expect(view).toHaveCSS("background-color", "rgb(0, 0, 0)");
-  await expect(view.locator(".three-dimension-label")).toHaveCount(6);
+  await expect(view.locator("button.three-dimension-label")).toHaveCount(6);
+  await expect(view.getByRole("img", { name: /^H1 =/ })).toBeVisible();
   expect(await view.getAttribute("data-camera")).toBe(before);
   await page
     .getByRole("button", { name: "Concreto translúcido", exact: true })
@@ -203,6 +240,87 @@ test("continua interativo no modo compatível quando WebGL está indisponível",
   await page.waitForTimeout(200);
   expect(Number(await view.getAttribute("data-frame"))).toBe(frame);
   expect(errors).toEqual([]);
+});
+test("3D mostra e atualiza os dois ganchos de cada alça de N1", async ({
+  page,
+}) => {
+  const p = shortFixture();
+  p.design.tieLayers = 2;
+  p.detailing.supportHookProjection = 600;
+  p.detailing.supportHookTail = 128;
+  await page.addInitScript(
+    (project) => {
+      localStorage.setItem("consolostruct.project.v1", project);
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (
+        contextId: string,
+        ...args: unknown[]
+      ) {
+        if (contextId === "webgl2") return null;
+        return Reflect.apply(original, this, [contextId, ...args]);
+      } as typeof original;
+    },
+    JSON.stringify({ ...exampleProject(), pieces: [p] }),
+  );
+  await page.goto("/");
+  const detail = () =>
+    page
+      .locator(".document-tabs")
+      .getByRole("button", {
+        name: "Detalhamento",
+        exact: true,
+      })
+      .click();
+  await detail();
+  await page.getByLabel("Ancoragem do detalhe").selectOption("hook");
+  await open3d(page);
+  await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
+  const steel = page
+    .getByTestId("viewport-3d")
+    .locator('svg.three-surface path[style*="stroke:rgb(36,106,194)"]');
+  // The frontal camera sees both physical legs of each U at the same depth.
+  const verticalLegs = () =>
+    steel.evaluateAll((paths) =>
+      paths.flatMap((path) =>
+        Array.from(
+          (path.getAttribute("d") ?? "").matchAll(
+            /M([^,]+),([^L]+)L([^,]+),([^M]+)/g,
+          ),
+          ([, x1, y1, x2, y2]) => ({
+            x: Number(x1),
+            dx: Math.abs(Number(x2) - Number(x1)),
+            length: Math.abs(Number(y2) - Number(y1)),
+          }),
+        ).filter(({ dx, length }) => dx < 1e-3 && length > 5),
+      ),
+    );
+  await expect
+    .poll(async () => {
+      const legs = await verticalLegs();
+      if (legs.length !== 4) return 0;
+      const xs = legs.map(({ x }) => x);
+      return ((Math.max(...xs) - Math.min(...xs)) * 128) / legs[0].length;
+    })
+    .toBeCloseTo(36, 5);
+  const initial = await verticalLegs();
+  await detail();
+  const tail = page.getByLabel("Ponta reta do gancho");
+  await tail.fill("19,2");
+  await tail.press("Enter");
+  await open3d(page);
+  await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
+  await expect
+    .poll(async () => {
+      const legs = await verticalLegs();
+      return legs.length === 4 ? legs[0].length / initial[0].length : 0;
+    })
+    .toBeCloseTo(1.5, 4);
+  await detail();
+  await page.getByLabel("Ancoragem do detalhe").selectOption("straight");
+  await open3d(page);
+  await page.getByLabel("Orientação 3D", { exact: true }).selectOption("front");
+  await expect(steel.first()).toBeAttached();
+  await expect.poll(verticalLegs).toHaveLength(0);
 });
 test("trocas entre vistas descartam a cena anterior e preservam o editor", async ({
   page,

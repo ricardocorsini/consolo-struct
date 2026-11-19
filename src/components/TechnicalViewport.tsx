@@ -98,13 +98,21 @@ function TechnicalViewport({
     if (!m) return;
     const min = (m.top - h / 2 - c.y) / c.zoom + h / 2 - 25 / c.zoom,
       max = (m.bottom - h / 2 - c.y) / c.zoom + h / 2 + 25 / c.zoom;
-    const indices = ss.flatMap((s, i) =>
-      s.y + s.height >= min && s.y <= max ? [i] : [],
-    );
+    let first = -1,
+      last = -1;
+    for (let i = 0; i < ss.length; i++) {
+      const s = ss[i];
+      if (s.y + s.height >= min && s.y <= max) {
+        if (first === -1) first = i;
+        last = i;
+      }
+    }
     const overview = ss.length > 4 && m.scale * c.zoom < 0.8;
-    const key = `${indices.join(",")}/${overview}`;
+    const key = `${first}:${last}/${overview}`;
     if (key !== visibleKey.current) {
       visibleKey.current = key;
+      const indices: number[] = [];
+      if (first !== -1) for (let i = first; i <= last; i++) indices.push(i);
       setVisible({ indices, overview });
     }
   };
@@ -112,7 +120,14 @@ function TechnicalViewport({
     if (!frame.current)
       frame.current = requestAnimationFrame(() => paint.current());
   };
+  const endDrag = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d && svg.current?.hasPointerCapture(d.id))
+      svg.current.releasePointerCapture(d.id);
+  };
   const fit = (all = false) => {
+    endDrag();
     const node = svg.current;
     if (!node?.clientWidth || !node.clientHeight) return;
     measure();
@@ -156,6 +171,7 @@ function TechnicalViewport({
     const node = svg.current;
     if (!node) return;
     const resize = new ResizeObserver(() => {
+      endDrag();
       measure();
       if (initial.current) {
         fit();
@@ -163,7 +179,14 @@ function TechnicalViewport({
       } else schedule();
     });
     resize.observe(node);
-    return () => resize.disconnect();
+    window.addEventListener("blur", endDrag);
+    return () => {
+      resize.disconnect();
+      window.removeEventListener("blur", endDrag);
+      endDrag();
+      if (frame.current) cancelAnimationFrame(frame.current);
+      frame.current = 0;
+    };
   }, [width, height, sections, active, focusId, scope]);
   useLayoutEffect(() => {
     const node = svg.current;
@@ -222,7 +245,9 @@ function TechnicalViewport({
         viewBox={`0 0 ${width} ${height}`}
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key.toLowerCase() === "f") {
+          if (e.key === "Escape") {
+            endDrag();
+          } else if (e.key.toLowerCase() === "f") {
             e.preventDefault();
             fit(true);
           } else if (e.key === "+" || e.key === "=") {
@@ -235,7 +260,8 @@ function TechnicalViewport({
         }}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
-          if (e.button !== 0 && e.button !== 1) return;
+          if (!active || drag.current || (e.button !== 0 && e.button !== 1))
+            return;
           measure();
           if (!metrics.current) return;
           e.preventDefault();
@@ -260,12 +286,27 @@ function TechnicalViewport({
           schedule();
         }}
         onPointerUp={(e) => {
-          drag.current = null;
-          if (e.currentTarget.hasPointerCapture(e.pointerId))
-            e.currentTarget.releasePointerCapture(e.pointerId);
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(
+            d.inverse,
+          );
+          if (p.x !== d.x || p.y !== d.y) {
+            camera.current = {
+              ...camera.current,
+              x: camera.current.x + p.x - d.x,
+              y: camera.current.y + p.y - d.y,
+            };
+            schedule();
+          }
+          endDrag();
         }}
-        onPointerCancel={() => (drag.current = null)}
-        onLostPointerCapture={() => (drag.current = null)}
+        onPointerCancel={(e) => {
+          if (drag.current?.id === e.pointerId) endDrag();
+        }}
+        onLostPointerCapture={(e) => {
+          if (drag.current?.id === e.pointerId) endDrag();
+        }}
       >
         <g ref={model} data-testid="detail-model">
           {visible.indices.map((i) =>
