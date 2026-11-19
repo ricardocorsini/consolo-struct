@@ -1,6 +1,6 @@
 [package]
 name = "consolostruct"
-version = "0.7.1"
+version = "0.8.0"
 description = "Cálculo ELU e editor de consolos de concreto armado"
 authors = ["OpenStruct contributors"]
 edition = "2021"

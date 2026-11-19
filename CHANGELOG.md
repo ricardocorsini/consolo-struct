@@ -4,6 +4,10 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+## 0.8.0
+
+Reúne as mudanças integradas desde a 0.7.1, incluindo a revisão de ancoragem, geometria das armaduras e detalhamento da issue #62. [Notas de publicação](.github/release-notes/v0.8.0.md).
+
 - Organiza cotas, chamadas e legendas na prancha com caixas delimitadoras calculadas (issue #73). Cotas estreitas deslocam o rótulo para fora do vão, a planta reúne as marcas numa chamada por camada e os blocos da prancha se ajustam à área ocupada. A tela e as saídas SVG, DXF e PDF usam a mesma composição.
 
 - Integra as formas de dobramento à Relação do Aço (issue #70). Cada posição traz o esquema proporcional do eixo da barra, com trechos retos, dobras, mandris e notas. Alças com gancho no suporte incluem sua vista lateral cotada. A tabela compacta acompanha a prancha em SVG, DXF e PDF. O CSV mantém os mesmos campos e valores.

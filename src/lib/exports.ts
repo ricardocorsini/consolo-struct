@@ -78,7 +78,7 @@ export function toSvg(p: Piece): string {
   const path = piecePoints(p)
     .map(([x, y]) => `${x},${-y}`)
     .join(" ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-g.columnWidth - 90} -170 ${width} ${height}">${gammaNote ? `<desc>${xml(gammaNote)}</desc>` : ""}<rect x="${-g.columnWidth - 90}" y="-170" width="${width}" height="${height}" fill="white"/><g stroke="#3e4c60" stroke-width="2" fill="#f2f4f7"><rect x="${-g.columnWidth}" y="-80" width="${g.columnWidth}" height="${g.height + 140}"/><polygon points="${path}"/></g><g font-family="sans-serif" font-size="12" fill="#33445c"><text x="${-g.columnWidth}" y="-130">${xml(p.name)} - ConsoloStruct 0.7 | GEOMETRIA NAO EXECUTIVA</text><text x="${-g.columnWidth}" y="${g.height + 85}">Unidades: mm. Consultar memoria de calculo. Desenho nao executivo.</text>${gammaRows.map((row, index) => `<text x="${-g.columnWidth}" y="${g.height + 110 + index * 16}">${xml(row)}</text>`).join("")}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-g.columnWidth - 90} -170 ${width} ${height}">${gammaNote ? `<desc>${xml(gammaNote)}</desc>` : ""}<rect x="${-g.columnWidth - 90}" y="-170" width="${width}" height="${height}" fill="white"/><g stroke="#3e4c60" stroke-width="2" fill="#f2f4f7"><rect x="${-g.columnWidth}" y="-80" width="${g.columnWidth}" height="${g.height + 140}"/><polygon points="${path}"/></g><g font-family="sans-serif" font-size="12" fill="#33445c"><text x="${-g.columnWidth}" y="-130">${xml(p.name)} - ConsoloStruct 0.8 | GEOMETRIA NAO EXECUTIVA</text><text x="${-g.columnWidth}" y="${g.height + 85}">Unidades: mm. Consultar memoria de calculo. Desenho nao executivo.</text>${gammaRows.map((row, index) => `<text x="${-g.columnWidth}" y="${g.height + 110 + index * 16}">${xml(row)}</text>`).join("")}</g></svg>`;
 }
 export function toDxf(p: Piece): string {
   const g = p.geometry;
@@ -144,7 +144,7 @@ export function toDxf(p: Piece): string {
     40,
     Math.max(g.height * 0.035, 8),
     1,
-    "ConsoloStruct 0.7 - GEOMETRIA NAO EXECUTIVA - NAO EXECUTIVO",
+    "ConsoloStruct 0.8 - GEOMETRIA NAO EXECUTIVA - NAO EXECUTIVO",
   );
   gammaNNoteRows(gammaNGeometryNote(p)).forEach((row, index) =>
     lines.push(
@@ -191,7 +191,7 @@ export function toCsv(project: Project) {
   );
   const rows: unknown[][] = [
     [
-      "ConsoloStruct 0.7 - Quantidades e verificacoes ELU; consultar memoria e pendencias",
+      "ConsoloStruct 0.8 - Quantidades e verificacoes ELU; consultar memoria e pendencias",
     ],
     [
       "Peca",
@@ -722,7 +722,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
     doc.setFontSize(8);
     doc.setTextColor(100);
     doc.text(
-      `ConsoloStruct 0.7 | OPENSTRUCT | Motor ${ENGINE_VERSION} | ${ascii(p.name).slice(0, 35)} | ${i}/${pages}`,
+      `ConsoloStruct 0.8 | OPENSTRUCT | Motor ${ENGINE_VERSION} | ${ascii(p.name).slice(0, 35)} | ${i}/${pages}`,
       18,
       287,
     );
