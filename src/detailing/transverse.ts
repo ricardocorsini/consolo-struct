@@ -1,5 +1,6 @@
 import type { Piece } from "../domain/model";
 import { tieLayout } from "../domain/engine";
+import { detailingLoopDiameter, loopNesting } from "../domain/loops";
 import { stirrupLayout } from "../domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../domain/profile";
 import { beamArrangementActive, beamBarPositions } from "./beam";
@@ -103,26 +104,21 @@ export function firstLayerTiePositions(p: Piece): number[] {
     q = p.design,
     r = p.rebar;
   if (!beamArrangementActive(p) && q.frontAnchor === "loop") {
-    const loops = Math.floor(firstRow.count / 2);
-    const mainD = mandrelDiameter(r.tieDiameter, p.materials.fyk);
-    const specifiedD = q.loopInternalDiameter ?? mainD;
-    const d = Math.max(specifiedD, mainD);
-    const radius = (d + r.tieDiameter) / 2;
-    const outerWidth =
-      g.width - 2 * (g.cover + r.stirrupDiameter) - r.tieDiameter;
-    const gap = layout.spacingHorizontalMin + r.tieDiameter;
-    const maxPitch = Math.min(layout.d, 15 * r.tieDiameter);
-    const innerTarget = Math.min(maxPitch, outerWidth - 2 * gap * (loops - 1));
-    const nestingPitch =
-      loops > 1 ? (outerWidth - innerTarget) / (2 * (loops - 1)) : 0;
-    const positions: number[] = [];
-    for (let i = 0; i < loops; i++) {
-      const width = outerWidth - 2 * i * nestingPitch;
-      if (width < 2 * radius) continue;
-      const inset = (g.width - width) / 2;
-      positions.push(inset, g.width - inset);
-    }
-    return positions.sort((a, b) => a - b);
+    // The loops as detailed (#64): same nesting and the same clamp to the
+    // narrowest width that holds the curve, so no leg is lost here either.
+    const nest = loopNesting(
+      p,
+      firstRow.count,
+      // The detailing numbers layers among the non-empty rows: this is the first.
+      detailingLoopDiameter(p, 0),
+      layout,
+    );
+    return nest.widths
+      .flatMap((w) => {
+        const inset = (g.width - Math.max(w, nest.required)) / 2;
+        return [inset, g.width - inset];
+      })
+      .sort((a, b) => a - b);
   }
   return beamBarPositions(p, firstRow.count, r.tieDiameter);
 }

@@ -16,12 +16,16 @@ function shortBeam() {
 }
 
 describe("Projeções dos percursos físicos — revisão #58", () => {
-  it("não desenha N1 na elevação quando todas as alças foram descartadas", () => {
+  it("#64: alças que não cabem continuam desenhadas, com erro impeditivo", () => {
     const p = shortFixture();
     p.geometry.width = 100;
     const d = buildDetail(p);
-    expect(d.bars.filter((b) => b.family === "tie")).toHaveLength(0);
-    expect(elevationTiePaths(p, d)).toEqual([]);
+    const ties = d.bars.filter((b) => b.family === "tie");
+    expect(ties.reduce((n, b) => n + 2 * b.quantity, 0)).toBe(p.rebar.tieCount);
+    expect(elevationTiePaths(p, d).length).toBeGreaterThan(0);
+    expect(d.issues).toContainEqual(
+      expect.objectContaining({ code: "nested-loops", severity: "error" }),
+    );
   });
 
   it.each(["loop", "welded"] as const)(
@@ -43,7 +47,11 @@ describe("Projeções dos percursos físicos — revisão #58", () => {
       radius = 58,
       centerX = 359;
     const inset = 39.3 + radius - Math.sqrt(radius ** 2 - (x - centerX) ** 2);
-    const bars = sectionBars(p, d, x).ties;
+    // #64: the inner loop no longer disappears; this checks the outer one.
+    const outer = d.bars
+      .filter((b) => b.family === "tie")
+      .reduce((a, b) => (b.width > a.width ? b : a));
+    const bars = sectionBars(p, d, x).ties.filter((t) => t.mark === outer.mark);
     expect(bars).toHaveLength(2);
     expect(bars[0].v).toBeCloseTo(inset, 8);
     expect(bars[1].v).toBeCloseTo(p.geometry.width - inset, 8);

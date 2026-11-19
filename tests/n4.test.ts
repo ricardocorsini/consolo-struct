@@ -149,7 +149,7 @@ describe("N3/N4 — cálculo e sugestão", () => {
     ],
     [
       "beam",
-      "fc70d81dbe1978079e24afef3f84f1cbea662b205d3117ab9ad3e37f85c7f0e8",
+      "d785bd21fdf354e030acbfe103756bf28f3d455dd91d884ceeae70da3da7cb14",
     ],
   ] as const)(
     "preserva todos os números e estados anteriores — %s",
@@ -204,7 +204,11 @@ describe("N3/N4 — cálculo e sugestão", () => {
     "usa os ramos na sugestão sem alterar N4 ou demandas",
     (fixture) => {
       const input = fixture();
-      if (fixture === cantileverFixture) input.geometry.length = 700;
+      if (fixture === cantileverFixture) {
+        input.geometry.length = 700;
+        // #64: loops do not physically nest in this 300 mm cantilever.
+        input.design.frontAnchor = "welded";
+      }
       input.rebar.stirrupBranches = 4;
       input.rebar.constructiveDiameter = 12.5;
       const proposal = suggestReinforcement(input);

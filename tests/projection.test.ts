@@ -168,7 +168,7 @@ describe("Projeções de ligações integradas a N3/N4 (#39)", () => {
 });
 
 describe("Sincronização de armaduras entre detalhamento, elevação e seção A–A (#36)", () => {
-  it("N1 em alça na seção A–A usa os insets reais do detalhamento e omite alça descartada", () => {
+  it("N1 em alça na seção A–A usa os insets reais do detalhamento, inclusive da alça que não cabe (#64)", () => {
     const p = shortFixture();
     p.geometry.width = 240;
     p.design.frontAnchor = "loop";
@@ -177,10 +177,17 @@ describe("Sincronização de armaduras entre detalhamento, elevação e seção 
     const d = buildDetail(p),
       x1 = stirrupLayout(p).positions[0];
     const sec = sectionBars(p, d, x1);
-    expect(sec.ties).toHaveLength(2);
-    const inset =
-      (p.geometry.width - d.bars.find((b) => b.family === "tie")!.width) / 2;
-    expect(sec.ties.map((t) => t.v)).toEqual([inset, p.geometry.width - inset]);
+    // Every declared leg is drawn (the inner loop overlaps at its minimum width).
+    expect(sec.ties).toHaveLength(p.rebar.tieCount);
+    const insets = d.bars
+      .filter((b) => b.family === "tie")
+      .flatMap((b) => {
+        const inset = (p.geometry.width - b.width) / 2;
+        return [inset, p.geometry.width - inset];
+      })
+      .sort((a, b) => a - b);
+    expect(sec.ties.map((t) => t.v).sort((a, b) => a - b)).toEqual(insets);
+    expect(d.issues.some((i) => i.code === "nested-loops")).toBe(true);
   });
 
   it("N1 na elevação inclui dobra de suporte quando supportAnchor = hook", () => {

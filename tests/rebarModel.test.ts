@@ -376,7 +376,7 @@ describe("Fonte única das armaduras (#63)", () => {
     ]);
   });
 
-  it("distingue os ramos configurados dos desenhados na peça padrão", async () => {
+  it("detalha na peça padrão todos os ramos configurados, com erro explícito (#64)", async () => {
     const p = newPiece(1);
     p.quantity = 3;
     const project = { ...exampleProject(), pieces: [p] };
@@ -385,18 +385,23 @@ describe("Fonte única das armaduras (#63)", () => {
       true,
     );
     const svg = drawingSvg(pieceDrawing(project, detail));
-    expect(svg).toContain("2 ramos detalhados em 1 camada(s) (4 informados)");
+    // No loop is discarded: the sheet shows the 4 configured legs.
+    expect(svg).toContain("Tirante: 4 ramos detalhados em 1 camada(s) ·");
+    expect(svg).not.toContain("informados");
     expect(svg).toContain("PENDÊNCIAS IMPEDITIVAS");
     const csv = csvCells(toCsv(project));
     const header = csv[1];
     expect(csv[2][header.indexOf("Tirante (barras)")]).toBe("4");
-    expect(csv[2][header.indexOf("N1 ramos detalhados por peca")]).toBe("2");
+    expect(csv[2][header.indexOf("N1 ramos detalhados por peca")]).toBe("4");
     const schedule = csvCells(steelCsv([detail]));
-    const tie = schedule.find((r) => r[3] === "N1")!;
-    // One physical loop per piece, with two longitudinal legs.
-    expect(tie.slice(7, 9)).toEqual(["1", "3"]);
+    // Two physical loops per piece, each with two longitudinal legs.
+    for (const mark of ["N1-1", "N1-2"])
+      expect(schedule.find((r) => r[3] === mark)!.slice(7, 9)).toEqual([
+        "1",
+        "3",
+      ]);
     const memory = Buffer.from(await toPdf(project, p)).toString("latin1");
-    expect(memory).toContain("N1 no detalhamento: 2 de 4 ramos informados.");
+    expect(memory).not.toContain("N1 no detalhamento");
     expect(memory).toContain("Consumo com pendencias impeditivas");
   });
 

@@ -149,7 +149,22 @@ describe("N3G — bloqueios de fabricação e seção A–A", () => {
     },
   );
 
-  it.each(["laços descartados", "camada com três barras"])(
+  it("#64: alças que não cabem não são descartadas; N3G segue os ramos desenhados", () => {
+    const p = newPiece(1);
+    p.rebar.stirrupBranches = 4;
+    expect(firstLayerTiePositions(p)).toHaveLength(4);
+    const detail = buildDetail(p);
+    expect(detail.issues).toContainEqual(
+      expect.objectContaining({ code: "nested-loops", severity: "error" }),
+    );
+    const legs = detail.bars
+      .filter((b) => b.family === "tie")
+      .reduce((n, b) => n + 2 * b.quantity, 0);
+    expect(legs).toBe(p.rebar.tieCount);
+    expect(detail.issues.some((i) => i.code.startsWith("parity-"))).toBe(false);
+  });
+
+  it.each(["camada com três barras"])(
     "não inventa N3G quando faltam N1 centrais: %s",
     (scenario) => {
       const p = newPiece(1);

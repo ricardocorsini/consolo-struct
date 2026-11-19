@@ -139,16 +139,21 @@ export function sectionBars(
   });
   const ties: { v: number; depth: number; diameter: number; mark: string }[] =
     [];
-  const addTie = (bar: Bar, v: number, depth: number) => {
+  // Physical bar of each cut point: coincident bars of one position are all
+  // drawn (#64); only repeated crossings of the same bar are merged.
+  const owners: object[] = [];
+  const addTie = (bar: Bar, owner: object, v: number, depth: number) => {
     if (
       !ties.some(
-        (t) =>
-          t.mark === bar.mark &&
+        (t, i) =>
+          owners[i] === owner &&
           Math.abs(t.v - v) < 1e-6 &&
           Math.abs(t.depth - depth) < 1e-6,
       )
-    )
+    ) {
       ties.push({ v, depth, diameter: bar.diameter, mark: bar.mark });
+      owners.push(owner);
+    }
   };
   const stitches: {
     depth: number;
@@ -195,7 +200,7 @@ export function sectionBars(
       });
     switch (bar.family) {
       case "tie":
-        for (const pt of cut.points) addTie(bar, pt.x, pt.y);
+        for (const pt of cut.points) addTie(bar, instance, pt.x, pt.y);
         break;
       case "stitch":
       case "lower":

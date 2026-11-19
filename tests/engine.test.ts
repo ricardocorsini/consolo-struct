@@ -662,7 +662,11 @@ describe("Viga em balanço, 1 < a/d ≤ 2 (issue #6)", () => {
     expect(r.checks.find((x) => x.id === "beamDomain")!.status).toBe("fail");
   });
   it("sugestão de armadura atende o modelo e não 'resolve' VRd2 com estribos", () => {
-    const ok = suggestReinforcement(cantileverFixture({ length: 700 }));
+    const input = cantileverFixture({ length: 700 });
+    // #64: in these 300 mm wide cantilevers, horizontal loops do not physically
+    // nest (loopNesting); the welded front anchorage keeps the case on its subject.
+    input.design.frontAnchor = "welded";
+    const ok = suggestReinforcement(input);
     expect(ok.changed).toBe(true);
     for (const id of [
       "tie",
@@ -699,6 +703,9 @@ describe("Sugestão da viga em balanço com combinações", () => {
     // stitch fails stitchClear; that rejection is covered in autodesign.test.ts.
     p.rebar.stitchDiameter = 10;
     p.design.loopInternalDiameter = 125;
+    // #64: in these 300 mm wide cantilevers, horizontal loops do not physically
+    // nest (loopNesting); the welded front anchorage keeps the case on its subject.
+    p.design.frontAnchor = "welded";
     p.design.combinations = [
       { name: "H", vertical: 230000, horizontal: 150000, gamma: 1.4 },
     ];

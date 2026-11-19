@@ -100,6 +100,7 @@ export function exhaustiveSecondarySearch(input: Piece) {
     "frontClearance",
     "loopPin",
     "loopWidth",
+    "loopNesting",
     "loopEven",
     "loopSteel",
     "cover",

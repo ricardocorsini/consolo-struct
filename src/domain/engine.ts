@@ -29,6 +29,7 @@ import {
   type GammaNDecision,
 } from "./gammaN";
 import { concreteProfile, excessConcreteLabels, pieceVolume } from "./profile";
+import { loopNesting } from "./loops";
 import {
   bondCoefficientEta1,
   loopPinDefined,
@@ -1319,6 +1320,27 @@ function calculateCase(
         "Compatibilidade geométrica da ancoragem horizontal",
       ),
     );
+    // Every loop of every layer, nested inside the stirrups as detailed (#64).
+    // Added only when a loop does not fit, so valid pieces keep their result.
+    const nesting = layout.rows
+      .filter((row) => row.count >= 2)
+      .map((row) => loopNesting(p, row.count, q.loopInternalDiameter, layout));
+    const worst = nesting
+      .filter((n) => !n.fits)
+      .sort((x, y) => x.innermost - x.required - (y.innermost - y.required))[0];
+    if (worst)
+      add(
+        check(
+          "loopNesting",
+          "Alças aninhadas na largura da peça",
+          worst.required,
+          worst.innermost,
+          "mm",
+          "D + φ ≤ largura entre eixos da alça mais interna da camada (alças concêntricas dentro dos estribos, folga livre mínima entre ramos)",
+          "Compatibilidade geométrica da ancoragem horizontal",
+          `${worst.loops} alças na camada mais crítica; larguras entre eixos ${worst.widths.map((w) => number(w, 1)).join(" / ")} mm; D adotado ${number(worst.diameter, 1)} mm (pino mínimo ${number(worst.mainD, 1)} mm). Aumente b, reduza ramos por camada ou distribua em mais camadas.`,
+        ),
+      );
     if (layout.rows.some((row) => row.count % 2 !== 0))
       add(
         note(

@@ -17,23 +17,26 @@ async function view(page: Page, name: string) {
     .click();
 }
 
-test("alças descartadas não reaparecem nas vistas e a pendência continua visível", async ({
+test("alças que não cabem continuam em todas as vistas, com a pendência visível (#64)", async ({
   page,
 }, info) => {
   const p = shortFixture();
   p.geometry.width = 100;
   await seed(page, p);
-  await expect(page.locator(".steel-N1 path")).toHaveCount(0);
+  await expect(page.locator(".steel-N1 path")).toHaveCount(1);
   await page.screenshot({
     path: info.outputPath("alcas-descartadas-elevacao.png"),
   });
   await view(page, "Seção A–A");
-  await expect(page.locator(".steel-N1 circle")).toHaveCount(0);
+  // Every declared leg is drawn, overlapping at the narrowest loop width.
+  await expect(page.locator(".steel-N1 circle")).toHaveCount(p.rebar.tieCount);
   await page.screenshot({
     path: info.outputPath("alcas-descartadas-secao.png"),
   });
   await view(page, "Detalhamento");
-  await expect(page.locator(".detail-issues")).toContainText("alça");
+  await expect(page.locator(".detail-issues")).toContainText(
+    "não cabem aninhadas",
+  );
 });
 
 test("seção corta as curvas de N1 e P1 e mantém d’ como referência do cálculo", async ({

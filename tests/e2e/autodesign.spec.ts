@@ -35,7 +35,9 @@ test("sugestão reduz candidatos, passa nas verificações e mantém histórico 
   const before = await saved(page);
   await suggest(page);
   await expect(page.getByRole("status")).toContainText(
-    "Arranjo sugerido entre 28 candidatos",
+    // #64: smaller diameters whose loops do not nest are now refused, so the
+    // same 6 Ø10 winner is reached after more assessed candidates.
+    "Arranjo sugerido entre 40 candidatos",
   );
   await expect(page.locator(".result-summary").first()).toContainText(
     "Atende às verificações implementadas",

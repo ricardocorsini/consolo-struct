@@ -301,7 +301,7 @@ describe("Regressão numérica contra master afec1f3 antes da migração", () =>
     ],
     [
       "beam",
-      "6e1539c67adbd29d9da35c01b5499f7eba7951c2195a1aec2767c1ed7ba8ec04",
+      "978236476fc16660ec9b746bac0ba275f4ce705ebd5ac8d830a201e64c5803f1",
     ],
   ] as const)(
     "preserva todos os valores, estados e verificações de %s com CA-50/CA-50 e γs=1,15",

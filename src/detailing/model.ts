@@ -38,6 +38,8 @@ import {
   type PlacedPath,
 } from "./rebarPlacement";
 import { pieceVolume } from "../domain/profile";
+import { detailingLoopDiameter, loopNesting } from "../domain/loops";
+import { validateRebarConsistency } from "./consistency";
 export { pinCenters } from "./connections";
 
 export type DetailIssue = {
@@ -482,42 +484,31 @@ export function buildRebarGeometry(
             "tie-even",
             "Alças horizontais exigem número par de ramos em cada camada. Ajuste a quantidade ou as camadas.",
           );
-        const specifiedD =
-          layer > 0 && s.secondLoopDiameter > 0
-            ? s.secondLoopDiameter
-            : q.loopInternalDiameter;
-        const loops = Math.floor(row.count / 2),
-          d = Math.max(specifiedD, mainD);
+        const specifiedD = detailingLoopDiameter(p, layer);
+        // Same nesting as the engine check loopNesting (#64).
+        const nest = loopNesting(p, row.count, specifiedD, layout);
+        const { loops, radius, outerWidth, maxPitch } = nest,
+          d = nest.diameter;
         if (specifiedD < mainD)
           issue(
             "loop-mandrel",
             "O diâmetro interno da alça informado é menor que o mandril mínimo do tirante.",
           );
-        const radius = (d + r.tieDiameter) / 2;
-        const outerWidth =
-          g.width - 2 * (g.cover + r.stirrupDiameter) - r.tieDiameter;
-        const gap = layout.spacingHorizontalMin + r.tieDiameter;
-        const maxPitch = Math.min(layout.d, 15 * r.tieDiameter);
-        const innerTarget = Math.min(
-          maxPitch,
-          outerWidth - 2 * gap * (loops - 1),
-        );
-        const nestingPitch =
-          loops > 1 ? (outerWidth - innerTarget) / (2 * (loops - 1)) : 0;
         if (loops === 1 && outerWidth > maxPitch + 1e-6)
           issue(
             "tie-real-pitch",
             "A distância real entre os ramos da alça ultrapassa o limite em planta. Use mais alças por camada ou reveja a largura.",
           );
         for (let i = 0; i < loops; i++) {
-          const width = outerWidth - 2 * i * nestingPitch;
-          if (width < 2 * radius) {
+          // A loop that does not fit is never dropped (#64): every declared
+          // leg is drawn and scheduled, at the narrowest width that still
+          // holds its curve, overlapping its neighbours, with a blocking error.
+          const width = Math.max(nest.widths[i], nest.required);
+          if (nest.widths[i] < nest.required - 1e-9)
             issue(
               "nested-loops",
-              "As alças do tirante se sobrepõem transversalmente. Aumente b, reduza ramos ou distribua em mais camadas.",
+              `As alças do tirante não cabem aninhadas na largura: a alça mais interna exige ${cm(nest.required)} cm entre eixos e dispõe de ${cm(nest.innermost)} cm. Todos os ramos foram desenhados e quantificados, sobrepostos na largura mínima da curva; o arranjo não pode ser fabricado. Aumente b, reduza ramos por camada ou distribua em mais camadas.`,
             );
-            continue;
-          }
           const startX = -back + (q.supportAnchor === "hook" ? mainR : 0);
           const path = roundedPath(
             [
@@ -696,9 +687,11 @@ export function buildRebarGeometry(
     if (count > 0 && end < start) {
       issue(
         `zone-${family}`,
-        "Não há altura suficiente para distribuir a costura preservando o cobrimento e a separação das barras.",
+        `Não há altura suficiente para distribuir a costura ${family === "stitch" ? "superior" : "inferior"} preservando o cobrimento e a separação das barras. As ${count} barras declaradas foram desenhadas e quantificadas sobrepostas no ponto médio da faixa; o arranjo não pode ser fabricado.`,
       );
-      return;
+      // Never drop the declared bars (#64): stack them at the middle of the
+      // empty band so every view and the schedule keep the declared count.
+      start = end = (start + end) / 2;
     }
     const step = (end - start) / Math.max(count - 1, 1);
     for (let i = 0; i < count; i++) {
@@ -1174,6 +1167,13 @@ export function buildRebarGeometry(
       totalMass: mass * p.quantity,
     };
   });
+  // Automatic parity audit (#64): declared, placed, scheduled and shown.
+  for (const problem of validateRebarConsistency({
+    piece: p,
+    bars: positions,
+    arrangement: beam ? "beam" : "consolo",
+  }))
+    issue(problem.code, problem.message);
   return {
     piece: p,
     bars: positions,

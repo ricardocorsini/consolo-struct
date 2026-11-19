@@ -120,6 +120,7 @@ export function suggestReinforcement(input: Piece): DesignProposal {
     "frontClearance",
     "loopPin",
     "loopWidth",
+    "loopNesting",
     "loopEven",
     "loopSteel",
     "cover",

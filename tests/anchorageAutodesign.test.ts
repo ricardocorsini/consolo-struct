@@ -17,7 +17,12 @@ describe("Ancoragem na busca com secundárias por candidato (#12 + #16)", () => 
     (welded, floor) => {
       for (const fixture of [
         shortFixture,
-        () => cantileverFixture({ length: 700 }),
+        () => {
+          // #64: loops do not physically nest in this 300 mm cantilever.
+          const p = cantileverFixture({ length: 700 });
+          p.design.frontAnchor = "welded";
+          return p;
+        },
       ]) {
         const input = fixture();
         input.design.supportWeldedBar = welded;

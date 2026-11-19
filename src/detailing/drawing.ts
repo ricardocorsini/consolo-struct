@@ -16,6 +16,7 @@ import { type Bar, type Detail } from "./model";
 import { reactionGeometry, stirrupLayout } from "../domain/theory";
 import { elevationTieBars, sectionBars } from "./projection";
 import { projectElevation, projectPlan, type ViewItem } from "./rebarModel";
+import { countText, declaredCounts, placedCounts } from "./consistency";
 import { bottomDepth, concreteProfile } from "../domain/profile";
 import { coefficientText, materialSafety } from "../domain/materialSafety";
 import {
@@ -82,6 +83,12 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     q = p.design,
     s = p.detailing;
   const entities: Entity[] = [];
+  // Every count printed on the sheet is the detailed one (#64).
+  const declared = declaredCounts(d),
+    placed = placedCounts(d);
+  const qty = (family: keyof typeof placed) =>
+    countText(placed[family], declared[family]);
+  const n3Branches = placed.stirrupInner ? 4 : 2;
   const text = (
     x: number,
     y: number,
@@ -276,21 +283,9 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   const tableX = viewRight + 10,
     tableW = 205;
   const width = Math.max(540, tableX + tableW + 12);
-  const countBars = (family: Bar["family"]) =>
-    d.bars
-      .filter((bar) => bar.family === family)
-      .reduce((sum, bar) => sum + bar.quantity, 0);
-  const detailedTieCount = d.tieRows.reduce(
-    (sum, row) => sum + row.detailedCount,
-    0,
-  );
   const detailedTieLayers = d.tieRows.filter(
     (row) => row.detailedCount > 0,
   ).length;
-  const missingTieLegs = detailedTieCount !== r.tieCount;
-  const outerCount = countBars("stirrup");
-  const innerCount = countBars("stirrupInner");
-  const constructiveCount = countBars("constructive");
   text(10, 8, `${p.name}  |  DETALHAMENTO DO CONSOLO`, 3.5);
   text(
     width - 10,
@@ -311,7 +306,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   text(
     10,
     26,
-    `Tirante: ${detailedTieCount} ramos detalhados em ${detailedTieLayers} camada(s)${detailedTieLayers === 2 ? " · TIRANTE DUPLO" : ""}${missingTieLegs ? ` (${r.tieCount} informados)` : ""} · V${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.vertical / 1000, 1)} kN · H${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.horizontal / 1000, 1)} kN · a_calc=${cm(reactionGeometry(p).a)} cm`,
+    `Tirante: ${placed.tie} ramos detalhados em ${detailedTieLayers} camada(s)${detailedTieLayers === 2 ? " · TIRANTE DUPLO" : ""}${placed.tie !== declared.tie ? ` (${countText(placed.tie, declared.tie)})` : ""} · V${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.vertical / 1000, 1)} kN · H${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.horizontal / 1000, 1)} kN · a_calc=${cm(reactionGeometry(p).a)} cm`,
     2.3,
   );
   text(
@@ -463,7 +458,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   text(
     x - P,
     y + H + 29,
-    `Costura ${marks(stitchBars)} · Estribos ${marks(verticalBars)} · Construtiva ${marks(constructiveBars)}${positiveBars.length ? ` · Positiva ${marks(positiveBars)}` : ""}`,
+    `Costura ${marks(stitchBars)} · N3: ${countText(n3Branches, r.stirrupBranches ?? 2)} ramos/posição (${marks(verticalBars)}) · Construtiva ${marks(constructiveBars)}${positiveBars.length ? ` · Positiva ${marks(positiveBars)}` : ""}`,
     2.2,
   );
   if (beam)
@@ -553,7 +548,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   text(
     sectionX,
     y + H + 18,
-    `Tirante detalhado: ${detailedTieCount} ramos Ø${number(r.tieDiameter, 1)} / ${detailedTieLayers} camada(s)`,
+    `Tirante detalhado: ${qty("tie")} ramos Ø${number(r.tieDiameter, 1)} / ${detailedTieLayers} camada(s)`,
     2.1,
   );
   d.tieRows
@@ -562,7 +557,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       text(
         sectionX,
         y + H + 23 + i * 4,
-        `${i + 1}ª: ${row.detailedCount} ramos detalhados${row.detailedCount !== row.count ? ` de ${row.count} informados` : ""}; eixo a ${cm(row.y)} do topo (${tieBars
+        `${i + 1}ª: ${countText(row.detailedCount, row.count)} ramos detalhados; eixo a ${cm(row.y)} do topo (${tieBars
           .filter((b) => b.locations.some((loc) => loc.layer === i))
           .map((b) => b.mark)
           .join("/")})`,
@@ -701,7 +696,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   text(
     sectionX,
     infoY + 6,
-    `N3: ${outerCount} externos detalhados · N3G: ${innerCount} internos detalhados.`,
+    `N3: ${qty("stirrup")} externos detalhados · N3G: ${qty("stirrupInner")} internos detalhados.`,
     2.1,
   );
   text(
@@ -715,13 +710,13 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   text(
     sectionX,
     infoY + 18,
-    `Costura superior: ${countBars("stitch")} barras nos 2d/3 superiores.`,
+    `Costura superior: ${qty("stitch")} barras nos 2d/3 superiores.`,
     2.1,
   );
   text(
     sectionX,
     infoY + 23,
-    `Costura inferior: ${countBars("lower")} barras no trecho restante.`,
+    `Costura inferior: ${qty("lower")} barras no trecho restante.`,
     2.1,
   );
   text(
@@ -966,7 +961,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   text(10, bottom, "NOTAS DE DETALHAMENTO E CONFERÊNCIA", 2.8);
   const safety = materialSafety(q);
   const notes = [
-    `N3: ${outerCount} estribo(s) externo(s); N3G: ${innerCount} estribo(s) interno(s). N4: ${constructiveCount} barras construtivas Ø${number(r.constructiveDiameter ?? 8, 1)} mm, sem contribuição resistente. N5 fendilhamento e N6 suspensão exigem detalhamento próprio.`,
+    `N3: ${qty("stirrup")} estribo(s) externo(s); N3G: ${qty("stirrupInner")} estribo(s) interno(s). N4: ${qty("constructive")} barras construtivas Ø${number(r.constructiveDiameter ?? 8, 1)} mm, sem contribuição resistente. N5 fendilhamento e N6 suspensão exigem detalhamento próprio.`,
     `Responsável técnico: ${project.author || "não informado"}. Cliente: ${project.client || "não informado"}. Revisão ${s.revision || "R00"}.`,
     "Desenhos soltos: geometria e formas em centímetros; diâmetros das barras em milímetros. CAD em escala real 1:1; PDF em escala nominal 1:10 ao imprimir a 100%.",
     "Mandris e ganchos: NBR 6118:2026, 9.4.2.3, tabelas 9.1 e 9.2 e 9.4.6.1. Estribos representados pela projeção nominal com fechamento de ganchos fora do plano.",
