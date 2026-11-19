@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Na elevação da modelagem, a cota A fica acima do consolo e L fica abaixo (issue #71). H1 mostra a diferença entre H e H2 em centímetros e acompanha a edição das alturas. A cota H1 fica oculta quando as duas alturas coincidem, e as indicações de carga ocupam uma faixa separada.
+
 - Completa os quantitativos da issue #63 por posição de armadura. A relação, os resumos e os CSVs usam os valores do modelo. O CSV do projeto inclui consumo de aço e concreto por peça. O resumo geral mostra o volume total de concreto e a taxa de aço do projeto. O espaçamento de N3/N3G usa as estações efetivamente detalhadas.
 
 - Integra o PR #76 (issue #63). Elevação, cortes, 3D, prancha e quadro de aço passam a usar as mesmas formas e instâncias de armadura. A revisão recupera os ganchos nominais da costura no 3D e na planta, desenha trechos no plano do corte e identifica o par N3/N3G da estação. A prancha distingue ramos informados de ramos detalhados quando alguma alça é descartada. Volume de concreto e taxa de aço aparecem no Detalhamento e na Memória. O CSV geral acrescenta ramos detalhados, massa total de aço detalhado e taxa de aço. Mantém o motor ELU e o esquema 6.
