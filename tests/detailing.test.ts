@@ -44,6 +44,8 @@ import {
   toSvg,
 } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
+import { sheetOrigins } from "./sheetOrigins";
+import { entityBounds } from "../src/detailing/layout";
 
 describe("Cotas geométricas da prancha", () => {
   it("liga A, L, H1 e as cotas de planta e cortes aos vértices medidos", () => {
@@ -64,27 +66,33 @@ describe("Cotas geométricas da prancha", () => {
         ),
       ).toBe(true);
     };
-    const sectionA = label("CORTE A-A /");
-    const sectionB = label("CORTE B-B /");
-    const y = sectionA.at.y + 8;
-    const planY = sectionB.at.y + 10;
-    const x = g.columnWidth / 10 + 15;
+    const origins = sheetOrigins(drawing, g);
+    const { x, y } = origins.elevation;
+    const { y: planY } = origins.plan;
     const tip = x + g.length / 10;
     const width = g.width / 10;
     const rootBottom = y + g.height / 10;
     const tipBottom = y + g.tipHeight / 10;
-    const loadY = label("A = ").at.y + 1.5;
-    const lenY = label("L = ").at.y + 1.5;
+    const loadY = label("A = ").at.y + 1.2;
+    const lenY = label("L = ").at.y + 1.2;
     expect(loadY).toBeLessThan(y);
-    expect(label("P = ").at.y + 1.5).toBe(loadY);
+    expect(label("P = ").at.y + 1.2).toBe(loadY);
     line(x, loadY, x + g.loadOffset / 10, loadY);
     expect(lenY).toBeGreaterThan(rootBottom);
     line(x, lenY, tip, lenY);
-    line(tip, tipBottom + 1, tip, lenY + 2);
+    expect(
+      lines.some(
+        ({ a, b, annotation }) =>
+          annotation === "extension" &&
+          Math.abs(a.x - tip) < 1e-8 &&
+          Math.abs(a.y - tipBottom - 1) < 1e-8 &&
+          b.y > lenY,
+      ),
+    ).toBe(true);
 
     const drop = label("H1 = ");
     expect(drop.text).toBe(`H1 = ${number((g.height - g.tipHeight) / 10)}`);
-    const dropX = drop.at.x + 1.5;
+    const dropX = drop.at.x + 1.2;
     expect(dropX).toBeGreaterThan(tip);
     expect(label("H = ").at.x).toBeGreaterThan(drop.at.x);
     line(dropX, tipBottom, dropX, rootBottom);
@@ -92,25 +100,35 @@ describe("Cotas geométricas da prancha", () => {
     const planLength = labels.find(
       (e) => e.text.startsWith("L = ") && e.at.y > planY,
     )!;
-    line(x, planLength.at.y + 1.5, tip, planLength.at.y + 1.5);
+    line(x, planLength.at.y + 1.2, tip, planLength.at.y + 1.2);
     const planWidth = labels.find(
-      (e) => e.text.startsWith("b = ") && e.at.x < sectionA.at.x,
+      (e) => e.text.startsWith("b = ") && e.at.x < origins.sectionA.x,
     )!;
-    line(planWidth.at.x + 1.5, planY, planWidth.at.x + 1.5, planY + width);
+    line(planWidth.at.x + 1.2, planY, planWidth.at.x + 1.2, planY + width);
 
     const profile = concreteProfile(p);
-    for (const [cut, top, station, symbol] of [
-      [sectionA, y, stirrupLayout(p).positions[0], "H(x1)"],
-      [sectionB, planY, g.loadOffset, "H(B-B)"],
+    for (const [origin, station, symbol] of [
+      [origins.sectionA, stirrupLayout(p).positions[0], "H(x1)"],
+      [origins.sectionB, g.loadOffset, "H(B-B)"],
     ] as const) {
-      const left = cut.at.x;
+      const { x: left, y: top } = origin;
       const depth = bottomDepth(profile, station) / 10;
       const bottom = top + depth;
-      expect(label(`${symbol} = `).text).toBe(`${symbol} = ${number(depth)}`);
-      line(left, bottom + 1, left, bottom + 10);
-      line(left + width, bottom + 1, left + width, bottom + 10);
-      line(left, bottom + 8, left + width, bottom + 8);
-      line(left + width + 10, top, left + width + 10, bottom);
+      const height = label(`${symbol} = `);
+      expect(height.text).toBe(`${symbol} = ${number(depth)}`);
+      const axis = height.at.x + 1.2;
+      expect(axis).toBeGreaterThan(left + width);
+      line(axis, top, axis, bottom);
+      expect(
+        lines.some(
+          ({ a, b, annotation }) =>
+            annotation === "dimension" &&
+            Math.abs(a.x - left) < 1e-8 &&
+            Math.abs(b.x - left - width) < 1e-8 &&
+            a.y === b.y &&
+            a.y > bottom,
+        ),
+      ).toBe(true);
     }
     expect(
       labels.filter((e) => e.text === `b = ${number(width)}`),
@@ -243,12 +261,11 @@ describe("Formas proporcionais na Relação do Aço (#70)", () => {
         );
         expect(labels[0].text).toContain(bar.description);
         for (const label of labels) {
-          expect(label.at.x).toBeGreaterThan(right + halfStroke);
-          expect(
-            label.at.x + label.text.length * label.size,
-          ).toBeLessThanOrEqual(cell.right - 3);
-          expect(label.at.y - label.size).toBeGreaterThanOrEqual(cell.top + 3);
-          expect(label.at.y).toBeLessThan(cell.bottom - 3);
+          const box = entityBounds(label);
+          expect(box.left).toBeGreaterThan(right + halfStroke);
+          expect(box.right).toBeLessThanOrEqual(cell.right - 3);
+          expect(box.top).toBeGreaterThanOrEqual(cell.top + 3);
+          expect(box.bottom).toBeLessThan(cell.bottom - 3);
         }
         if (hook) {
           expect(labels.map((label) => label.text).join(" ")).toContain(
@@ -392,11 +409,10 @@ describe("Armaduras em escala geométrica (#69)", () => {
       p.design.weldedBarDiameter = p.rebar.tieDiameter = diameter;
       const detail = buildDetail(p);
       const sheet = pieceDrawing(exampleProject(), detail);
-      const x = p.geometry.columnWidth / 10 + 15;
+      const origins = sheetOrigins(sheet, p.geometry);
+      const { x, y: elevationY } = origins.elevation;
+      const { y: planY } = origins.plan;
       const front = x + (p.geometry.length - p.geometry.cover) / 10;
-      const sectionX = x + p.geometry.length / 10 + 46;
-      const elevationY = 52;
-      const planY = elevationY + p.geometry.height / 10 + 55;
       const depth = tieLayout(p).rows[0].y / 10;
       const inset =
         (p.geometry.cover + p.rebar.stirrupDiameter + diameter / 2) / 10;
@@ -409,7 +425,7 @@ describe("Armaduras em escala geométrica (#69)", () => {
             entity.type === "line" &&
             Math.abs(entity.a.y - y) < 1e-8 &&
             Math.abs(entity.b.y - y) < 1e-8 &&
-            Math.max(entity.a.x, entity.b.x) === front,
+            Math.abs(Math.max(entity.a.x, entity.b.x) - front) < 1e-8,
         );
         expect(line).toMatchObject({ thickness: diameter / 10 });
         expect(entitySvg(line!)).toContain('stroke-linecap="butt"');
@@ -419,12 +435,12 @@ describe("Armaduras em escala geométrica (#69)", () => {
           8,
         );
       }
-      for (const y of [elevationY + depth, planY + depth]) {
+      for (const cut of [origins.sectionA, origins.sectionB]) {
         const section = steel.find(
           (entity) =>
             entity.type === "circle" &&
-            Math.abs(entity.center.x - sectionX - inset) < 1e-8 &&
-            Math.abs(entity.center.y - y) < 1e-8,
+            Math.abs(entity.center.x - cut.x - inset) < 1e-8 &&
+            Math.abs(entity.center.y - cut.y - depth) < 1e-8,
         );
         expect(section).toMatchObject({ radius: diameter / 20 });
         expect(entitySvg(section!)).toContain('stroke="none"');

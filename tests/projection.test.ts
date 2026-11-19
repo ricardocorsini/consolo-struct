@@ -1,3 +1,4 @@
+import { sheetOrigins } from "./sheetOrigins";
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -252,15 +253,18 @@ describe("Gancho de N1 no suporte (#68)", () => {
       const detail = buildDetail(p);
       const ties = elevationTieBars(p, detail);
       const sampled = elevationTiePaths(p, detail);
-      const sheet = pieceDrawing(exampleProject(), detail).entities.filter(
+      const drawing = pieceDrawing(exampleProject(), detail);
+      const sheet = drawing.entities.filter(
         (e) => e.layer === "ARMADURAS" && e.type !== "circle",
       );
       const radius =
         (mandrelDiameter(p.rebar.tieDiameter, p.materials.fyk) +
           p.rebar.tieDiameter) /
         2;
-      const originX = p.geometry.columnWidth / 10 + 15;
-      const originY = 52;
+      const { x: originX, y: originY } = sheetOrigins(
+        drawing,
+        p.geometry,
+      ).elevation;
       const pitch = beamTieBends(p, 1).back - beamTieBends(p, 0).back;
       expect(ties).toHaveLength(2);
       let offset = 0;

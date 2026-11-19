@@ -24,6 +24,16 @@ Na elevação, **P** mede o pilar e **A** vai da face do pilar ao eixo nominal d
 
 Na planta, **L** aparece abaixo e **b** mede a largura na lateral. Nos dois cortes, **b** se refere aos vértices da base real. **H(x1)** indica a altura de concreto na estação do primeiro estribo em A–A. **H(B-B)** indica a altura de concreto no eixo nominal do apoio em B–B. As cotas acompanham a geometria corrente em SVG, DXF e PDF.
 
+## Posicionamento das anotações
+
+As cotas ocupam trilhas externas às vistas. Quando o texto é mais largo que o espaço entre os traços, ele fica fora do vão, ligado à cota por um trecho curto. As linhas de extensão preservam a referência aos vértices e recebem uma interrupção quando passariam sobre um texto de outra trilha.
+
+Na planta, cada camada adicional recebe uma única chamada com as marcas das suas barras. Elevação, cortes, planta, Relação do Aço e notas usam o espaço ocupado pelas vistas, cotas e legendas para calcular as folgas entre blocos. As quebras de linha da tabela e das notas acompanham a largura medida do texto.
+
+O layout estima caixas de Arial/Helvetica com margem de 10% sobre a largura dos caracteres. O DXF declara Arial no estilo Standard e converte o tamanho do texto para a altura de maiúscula. Tela, SVG, DXF e PDF usam as mesmas posições e rotações. Os testes verificam as caixas com código geométrico e com o **getBBox()** do navegador.
+
+[Comparação antes e depois em três geometrias](images/prancha-anticolisao.webp)
+
 ## Tirante simples e duplo
 
 **Duplo** significa duas camadas de tirante na mesma face do suporte; não representa consolos nos dois lados de um pilar. A contagem de ramos e a bitola são os dados físicos já usados no motor. Alterar o número de camadas recalcula o centroide e a altura útil.
