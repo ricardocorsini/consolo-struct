@@ -1,6 +1,11 @@
 import type { Project } from "../domain/model";
 import { number } from "../domain/model";
 import {
+  dimensionLabel,
+  elevationDimensions,
+  type ElevationDimension,
+} from "../domain/dimensions";
+import {
   mandrelDiameter,
   samplePath,
   type BarPath,
@@ -188,8 +193,8 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     y2: number,
     offset: number,
     label: string,
+    vertical = Math.abs(x2 - x) < 1e-6,
   ) => {
-    const vertical = Math.abs(x2 - x) < 1e-6;
     if (!vertical) {
       line(
         x,
@@ -260,10 +265,12 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     L = g.length / 10,
     H = g.height / 10,
     B = g.width / 10;
+  const bearingHeight = Math.max(q.bearingHeight / 10, 1);
+  const pinProjection = d.bars.some((bar) => bar.family === "pin")
+    ? s.pinProjection / 10
+    : 0;
   const x = P + 15,
-    y =
-      52 +
-      (d.bars.some((bar) => bar.family === "pin") ? s.pinProjection / 10 : 0),
+    y = 52 + Math.max(pinProjection, bearingHeight - 6, 0),
     sectionX = x + L + 46;
   const viewRight = sectionX + B + 50;
   const tableX = viewRight + 10,
@@ -341,9 +348,9 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     ]);
   rect(
     x + (g.loadOffset - q.bearingLength / 2) / 10,
-    y - Math.max(q.bearingHeight / 10, 1),
+    y - bearingHeight,
     q.bearingLength / 10,
-    Math.max(q.bearingHeight / 10, 1),
+    bearingHeight,
   );
   const slope = (g.height - g.tipHeight) / g.length;
   // Inclination of each inclined stretch of the bottom face, in degrees.
@@ -400,11 +407,36 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       y - 10,
       `${pin.bar.quantity} ${pin.bar.mark} (pinos)`,
     );
-  dim(x - P, y, x, y, -10, `P=${cm(g.columnWidth)}`);
-  dim(x, y, x + L, y, -10, `L=${cm(g.length)}`);
-  dim(x, y, x + g.loadOffset / 10, y, -19, `a=${cm(g.loadOffset)}`);
-  dim(x + L, y, x + L, y + H, 20, `h=${cm(g.height)}`);
-  dim(x + L, y, x + L, y + g.tipHeight / 10, 10, `h2=${cm(g.tipHeight)}`);
+  const measurements = elevationDimensions(g);
+  const drop =
+    measurements.find((d) => d.id === "heightDifference")?.value ?? 0;
+  const separateDrop = drop > 0 && Math.min(drop, g.tipHeight) < 100;
+  const topDimensionY = Math.min(
+    y - 10,
+    y - Math.max(bearingHeight, pinProjection) - 4,
+  );
+  const dimensionAxes: Record<ElevationDimension["id"], number> = {
+    columnWidth: topDimensionY,
+    loadOffset: topDimensionY,
+    length: y + Math.max(H, g.tipHeight / 10) + 12,
+    tipHeight: x + L + 10,
+    heightDifference: x + L + (separateDrop ? 18 : 10),
+    height: x + L + (separateDrop ? 28 : 20),
+  };
+  for (const { id, from, to, placement, value } of measurements) {
+    const vertical = placement === "inner" || placement === "outer";
+    const firstX = x + from.x / 10;
+    const firstY = y + from.depth / 10;
+    dim(
+      firstX,
+      firstY,
+      x + to.x / 10,
+      y + to.depth / 10,
+      dimensionAxes[id] - (vertical ? firstX : firstY),
+      dimensionLabel(id, value),
+      vertical,
+    );
+  }
   const tieBars = d.bars.filter((b) => b.family === "tie");
   const stitchBars = d.bars.filter(
     (b) => b.family === "stitch" || b.family === "lower",
@@ -443,9 +475,8 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     );
   // The first scheduled outer stirrup defines the cut, even if its shape is invalid.
   const cutDepth = stirrupLayout(p).positions[0];
-  const sectionH = cut
-    ? bottomDepth(concrete, cutDepth) / 10
-    : H - (slope * cutDepth) / 10;
+  const sectionDepth = bottomDepth(concrete, cutDepth);
+  const sectionH = sectionDepth / 10;
   // Both transverse cuts draw exactly the bars that meet their plane.
   const drawSection = (
     section: ReturnType<typeof sectionBars>,
@@ -503,7 +534,22 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       1.8,
     );
   drawSection(sectionRebar, sectionX, y);
-  dim(sectionX, y + H, sectionX + B, y + H, 8, `b=${cm(g.width)}`);
+  dim(
+    sectionX,
+    y + sectionH,
+    sectionX + B,
+    y + sectionH,
+    8,
+    dimensionLabel("width", g.width),
+  );
+  dim(
+    sectionX + B,
+    y,
+    sectionX + B,
+    y + sectionH,
+    10,
+    dimensionLabel("sectionHeight", sectionDepth),
+  );
   text(
     sectionX,
     y + H + 18,
@@ -570,8 +616,8 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   line(cutX, planY - 5, cutX, planY + B + 5, "EIXOS", true);
   text(cutX - 2, planY - 6, "A", 2.7);
   text(cutX - 2, planY + B + 10, "A", 2.7);
-  dim(x, planY + B, x + L, planY + B, 8, cm(g.length));
-  dim(x + L, planY, x + L, planY + B, 10, cm(g.width));
+  dim(x, planY + B, x + L, planY + B, 8, dimensionLabel("length", g.length));
+  dim(x + L, planY, x + L, planY + B, 10, dimensionLabel("width", g.width));
   text(
     x - P,
     planY + B + 23,
@@ -589,21 +635,20 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     .filter((bar) => bar.family === "stirrup")
     .flatMap((bar) => bar.locations.map((loc) => loc.x))
     .sort((a, b) => a - b);
-  const bearingH = cut
-    ? bottomDepth(concrete, g.loadOffset) / 10
-    : H - (slope * g.loadOffset) / 10;
+  const bearingDepth = bottomDepth(concrete, g.loadOffset);
+  const bearingH = bearingDepth / 10;
   text(
     sectionX,
-    planY - (s.pins ? Math.max(10, s.pinProjection / 10 + 5) : 10),
+    planY - Math.max(10, Math.max(bearingHeight, pinProjection) + 5),
     `CORTE B-B / x=${cm(g.loadOffset)} cm`,
     2.8,
   );
   rect(sectionX, planY, B, bearingH);
   rect(
     sectionX + (B - q.bearingWidth / 10) / 2,
-    planY - Math.max(q.bearingHeight / 10, 1),
+    planY - bearingHeight,
     q.bearingWidth / 10,
-    Math.max(q.bearingHeight / 10, 1),
+    bearingHeight,
   );
   // B–B at the load axis: same cut as A–A (loops, beam bars and P1 included,
   // stitches only where they still reach x, pins in their own plane).
@@ -620,7 +665,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         sectionX + centers.at(-1)!,
         planY + bearingH,
         8,
-        `${centers.length - 1}×${cm((centers[1] - centers[0]) * 10)}`,
+        `s = ${centers.length - 1} × ${cm((centers[1] - centers[0]) * 10)}`,
       );
     dim(
       sectionX,
@@ -628,22 +673,30 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       sectionX + centers[0],
       planY + bearingH,
       16,
-      `e=${cm(centers[0] * 10)}`,
+      `e = ${cm(centers[0] * 10)}`,
     );
   }
+  dim(
+    sectionX,
+    planY + bearingH,
+    sectionX + B,
+    planY + bearingH,
+    centers.length ? 24 : 8,
+    dimensionLabel("width", g.width),
+  );
   dim(
     sectionX + B,
     planY,
     sectionX + B,
     planY + bearingH,
     10,
-    cm(bearingH * 10),
+    dimensionLabel("bearingSectionHeight", bearingDepth),
   );
   const bx = x + g.loadOffset / 10;
   line(bx, planY - 5, bx, planY + B + 5, "EIXOS", true);
   text(bx - 2, planY - 6, "B", 2.7);
   text(bx - 2, planY + B + 10, "B", 2.7);
-  const infoY = planY + Math.max(B, bearingH) + 22;
+  const infoY = planY + Math.max(B, bearingH) + (centers.length ? 34 : 22);
   text(sectionX, infoY, "DISTRIBUIÇÃO DOS ESTRIBOS", 2.7);
   text(
     sectionX,

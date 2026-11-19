@@ -333,7 +333,8 @@ test("controles reutilizados afetam a vista 3D sem mudar câmera ou documento", 
 }) => {
   await documentTab(page, "Vista 3D").click();
   const view = page.getByTestId("viewport-3d");
-  await expect(view.locator(".three-dimension-label")).toHaveCount(6);
+  await expect(view.locator("button.three-dimension-label")).toHaveCount(6);
+  await expect(view.getByRole("img", { name: /^H1 =/ })).toBeVisible();
   const camera = await view.getAttribute("data-camera");
   await settings(page).click();
   for (const [name, selector] of [

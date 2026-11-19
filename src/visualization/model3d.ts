@@ -1,4 +1,9 @@
 import { number, type GeometryKey, type Piece } from "../domain/model";
+import {
+  dimensionLabel,
+  elevationDimensions,
+  type ElevationDimension,
+} from "../domain/dimensions";
 import { reactionGeometry } from "../domain/theory";
 import { concreteProfile } from "../domain/profile";
 import { rebarModel, scenePaths, viewFamily } from "../detailing/rebarModel";
@@ -6,7 +11,7 @@ import { rebarModel, scenePaths, viewFamily } from "../detailing/rebarModel";
 /** World coordinates in mm: X = corbel length, Y = width, Z = up. */
 export type Point3 = [number, number, number];
 export interface Dimension3D {
-  id: GeometryKey;
+  id: GeometryKey | "heightDifference";
   label: string;
   from: Point3;
   to: Point3;
@@ -52,119 +57,62 @@ export function buildSceneModel(p: Piece): SceneModel {
   const margin = Math.max(22, span * 0.075),
     side = g.width / 2;
   const concrete = concreteProfile(p);
+  const cap = Math.max(60, g.height * 0.2);
+  const above = Math.max(cap, q.bearingHeight) + margin;
+  const below = -Math.max(g.height, g.tipHeight) - 1.25 * margin;
   const dim = (
-    id: GeometryKey,
-    symbol: string,
+    id: Dimension3D["id"],
+    value: number,
+    a: Point3,
+    b: Point3,
     from: Point3,
     to: Point3,
-    witnesses: [Point3, Point3][],
   ): Dimension3D => ({
     id,
-    label: `${symbol} = ${number(g[id] / 10, 1)} cm`,
+    label: dimensionLabel(id, value, true),
     from,
     to,
     anchor: mid(from, to),
-    witnesses,
-    value: g[id],
+    witnesses: [
+      [a, from],
+      [b, to],
+    ],
+    value,
   });
-  const dimensions: Dimension3D[] = [
-    dim(
-      "length",
-      "L",
-      [0, -side - margin, margin],
-      [g.length, -side - margin, margin],
-      [
-        [
-          [0, -side, 0],
-          [0, -side - margin, margin],
-        ],
-        [
-          [g.length, -side, 0],
-          [g.length, -side - margin, margin],
-        ],
-      ],
-    ),
-    dim(
-      "columnWidth",
-      "P",
-      [-g.columnWidth, -side - margin, margin],
-      [0, -side - margin, margin],
-      [
-        [
-          [-g.columnWidth, -side, margin * 0.5],
-          [-g.columnWidth, -side - margin, margin],
-        ],
-        [
-          [0, -side, 0],
-          [0, -side - margin, margin],
-        ],
-      ],
-    ),
-    dim(
-      "loadOffset",
-      "a",
-      [0, -side - margin, margin * 2.5],
-      [g.loadOffset, -side - margin, margin * 2.5],
-      [
-        [
-          [0, -side, 0],
-          [0, -side - margin, margin * 2.5],
-        ],
-        [
-          [g.loadOffset, -side, 0],
-          [g.loadOffset, -side - margin, margin * 2.5],
-        ],
-      ],
-    ),
-    dim(
-      "height",
-      "h",
-      [g.length + margin * 2.5, -side, 0],
-      [g.length + margin * 2.5, -side, -g.height],
-      [
-        [
-          [g.length, -side, 0],
-          [g.length + margin * 2.5, -side, 0],
-        ],
-        [
-          [0, -side, -g.height],
-          [g.length + margin * 2.5, -side, -g.height],
-        ],
-      ],
-    ),
-    dim(
-      "tipHeight",
-      "h₂",
-      [g.length + margin, -side, 0],
-      [g.length + margin, -side, -g.tipHeight],
-      [
-        [
-          [g.length, -side, 0],
-          [g.length + margin, -side, 0],
-        ],
-        [
-          [g.length, -side, -g.tipHeight],
-          [g.length + margin, -side, -g.tipHeight],
-        ],
-      ],
-    ),
+  const dimensions = elevationDimensions(g).map((d) => {
+    const reference = ({ x, depth }: ElevationDimension["from"]): Point3 => [
+      x,
+      -side,
+      -depth,
+    ];
+    const project = ({ x, depth }: ElevationDimension["from"]): Point3 => {
+      if (d.placement === "top" || d.placement === "bottom")
+        return [x, -side - margin, d.placement === "top" ? above : below];
+      return [
+        g.length + margin * (d.placement === "outer" ? 2.5 : 1),
+        -side,
+        -depth,
+      ];
+    };
+    return dim(
+      d.id,
+      d.value,
+      reference(d.from),
+      d.id === "loadOffset" ? [d.to.x, 0, -d.to.depth] : reference(d.to),
+      project(d.from),
+      project(d.to),
+    );
+  });
+  dimensions.push(
     dim(
       "width",
-      "b",
-      [g.length, -side, -g.tipHeight - margin * 1.5],
-      [g.length, side, -g.tipHeight - margin * 1.5],
-      [
-        [
-          [g.length, -side, -g.tipHeight],
-          [g.length, -side, -g.tipHeight - margin * 1.5],
-        ],
-        [
-          [g.length, side, -g.tipHeight],
-          [g.length, side, -g.tipHeight - margin * 1.5],
-        ],
-      ],
+      g.width,
+      [g.length, -side, -g.tipHeight],
+      [g.length, side, -g.tipHeight],
+      [g.length, -side, -g.tipHeight - margin],
+      [g.length, side, -g.tipHeight - margin],
     ),
-  ];
+  );
   const loads: Load3D[] = [];
   const vLabel = q.forceMode === "design" ? "Vd" : "Vk";
   const hLabel =
@@ -210,7 +158,6 @@ export function buildSceneModel(p: Piece): SceneModel {
       points: points.map((pt): Point3 => [pt.x, pt.y - side, -pt.z]),
     }),
   );
-  const cap = Math.max(60, g.height * 0.2);
   const support = {
     center: [-g.columnWidth / 2, 0, -g.height / 2] as Point3,
     size: [g.columnWidth, g.width, g.height + 2 * cap] as Point3,

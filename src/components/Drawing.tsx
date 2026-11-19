@@ -6,6 +6,12 @@ import { bottomDepth, concreteProfile } from "../domain/profile";
 import { useId, useMemo } from "react";
 import { number, type Piece, type GeometryKey } from "../domain/model";
 import {
+  dimensionLabel,
+  dimensionMetadata,
+  elevationDimensions,
+  type ElevationDimension,
+} from "../domain/dimensions";
+import {
   elevationShapes,
   elevationTieBars,
   sectionBars,
@@ -24,20 +30,7 @@ type Props = {
   onDimension: (key: GeometryKey, anchor: { x: number; y: number }) => void;
   onBar: (id: string) => void;
 };
-const dimensionSymbols: Record<GeometryKey, string> = {
-  width: "b",
-  height: "H",
-  tipHeight: "H2",
-  length: "L",
-  loadOffset: "A",
-  columnWidth: "P",
-  cover: "c",
-};
 const verticalDimensionLabelHeight = 68;
-const heightDifferenceFormat = new Intl.NumberFormat("pt-BR", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 8,
-});
 function Dim({
   x1,
   y1,
@@ -224,7 +217,7 @@ export default function Drawing({
   );
   const sectionTop = 140 + sectionHeadroom * s;
   const sectionCentroid = sectionTop + layout.dPrime * s;
-  const dPrimeLabel = `d’ = ${number(layout.dPrime / 10, 1)} cm`;
+  const dPrimeLabel = dimensionLabel("tieCentroid", layout.dPrime, true);
   const ox = 400 - ((elevationLeft + elevationRight) * s) / 2;
   const oy = 185;
   const X = (x: number) => ox + x * s,
@@ -251,16 +244,43 @@ export default function Drawing({
       ? loadDimensionY - 30
       : loadDimensionY;
   const lengthDimensionY = Y(g.height + 80) + 32;
-  const heightDifference = g.height - g.tipHeight;
+  const measured = elevationDimensions(g);
+  const heightDifference =
+    measured.find((d) => d.id === "heightDifference")?.value ?? 0;
   const tipHeightX = tipX + 35;
   // A short segment needs its own column so both height labels stay legible.
   const separateHeight =
-    heightDifference !== 0 &&
+    heightDifference > 0 &&
     Math.min(g.tipHeight, heightDifference) * s < verticalDimensionLabelHeight;
   const heightDifferenceX = tipHeightX + (separateHeight ? 43 : 0);
   const heightX = heightDifferenceX + 48;
+  const dimensionAxes: Record<ElevationDimension["id"], number> = {
+    columnWidth: pillarDimensionY,
+    loadOffset: loadDimensionY,
+    length: lengthDimensionY,
+    tipHeight: tipHeightX,
+    heightDifference: heightDifferenceX,
+    height: heightX,
+  };
   const concrete = concreteProfile(p);
   const sectionHeight = bottomDepth(concrete, sectionX);
+  const sectionFoot = sectionTop + sectionHeight * s;
+  const sectionWidthY = sectionFoot + 30;
+  const sectionRight = sectionLeft + g.width * s;
+  const sectionNoteY = Math.max(
+    sectionTop + 15 + sectionBottom * s,
+    dimensions ? sectionFoot + 46 : 0,
+  );
+  const sectionCaptionY = Math.min(
+    555,
+    Math.max(
+      sectionTop +
+        Math.max(sectionHeight, ...sectionRebar.lines.map((line) => line.b.y)) *
+          s +
+        (dimensions ? 55 : 30),
+      rebar && lowerStitchMissing ? sectionNoteY + 15 : 0,
+    ),
+  );
   const cut = concrete.status === "removed";
   const bottomPath = [...concrete.bottom]
     .reverse()
@@ -287,8 +307,6 @@ export default function Drawing({
       }
     },
   });
-  const cm = (key: GeometryKey) =>
-    `${dimensionSymbols[key]} = ${number(g[key] / 10, 1)}`;
   return (
     <svg
       id="piece-drawing"
@@ -503,7 +521,7 @@ export default function Drawing({
                 <g
                   className="dimension dimension-derived"
                   role="img"
-                  aria-label={`${dPrimeLabel} · topo ao centroide do tirante`}
+                  aria-label={`${dPrimeLabel} · ${dimensionMetadata.tieCentroid.label}`}
                 >
                   <title>
                     Distância do topo ao centroide nominal do tirante usado no
@@ -532,49 +550,34 @@ export default function Drawing({
                     {dPrimeLabel}
                   </text>
                 </g>
+                <g className="dimension-extension" fill="none">
+                  <path
+                    d={`M${sectionLeft} ${sectionFoot + 5}V${sectionWidthY + 6} M${sectionRight} ${sectionFoot + 5}V${sectionWidthY + 6} M${sectionRight} ${sectionTop}H${sectionRight + 48} M${sectionRight} ${sectionFoot}H${sectionRight + 48}`}
+                  />
+                </g>
                 <Dim
-                  x1={400 - (g.width * s) / 2}
-                  y1={110}
-                  x2={400 + (g.width * s) / 2}
-                  y2={110}
-                  label={cm("width")}
+                  x1={sectionLeft}
+                  y1={sectionWidthY}
+                  x2={sectionRight}
+                  y2={sectionWidthY}
+                  label={dimensionLabel("width", g.width)}
                   onClick={(anchor) => onDimension("width", anchor)}
                   active={focus === "width"}
                 />
-                <g
-                  className="dimension dimension-derived"
-                  role="img"
-                  aria-label={`h(x1) = ${number(sectionHeight / 10, 1)} cm · altura do concreto na seção A–A`}
-                >
-                  <title>Altura do concreto na estação do 1º estribo</title>
-                  <path
-                    d={`M${440 + (g.width * s) / 2} ${sectionTop}V${sectionTop + sectionHeight * s}`}
-                    fill="none"
-                  />
-                  <path
-                    d={`M${436 + (g.width * s) / 2} ${sectionTop + 4}l8 -8 M${436 + (g.width * s) / 2} ${sectionTop + sectionHeight * s + 4}l8 -8`}
-                    fill="none"
-                  />
-                  <g className="dimension-extension" fill="none">
-                    <path
-                      d={`M${400 + (g.width * s) / 2} ${sectionTop}H${448 + (g.width * s) / 2} M${400 + (g.width * s) / 2} ${sectionTop + sectionHeight * s}H${448 + (g.width * s) / 2}`}
-                    />
-                  </g>
-                  <text
-                    x={444 + (g.width * s) / 2}
-                    y={(2 * sectionTop + sectionHeight * s) / 2}
-                    textAnchor="middle"
-                    transform={`rotate(-90 ${444 + (g.width * s) / 2} ${(2 * sectionTop + sectionHeight * s) / 2})`}
-                  >
-                    {`h = ${number(sectionHeight / 10, 1)}`}
-                  </text>
-                </g>
+                <Dim
+                  x1={sectionRight + 40}
+                  y1={sectionTop}
+                  x2={sectionRight + 40}
+                  y2={sectionFoot}
+                  label={dimensionLabel("sectionHeight", sectionHeight)}
+                  description={dimensionMetadata.sectionHeight.label}
+                />
               </>
             )}
             {rebar && lowerStitchMissing && (
               <text
                 x={400}
-                y={sectionTop + 15 + sectionBottom * s}
+                y={sectionNoteY}
                 textAnchor="middle"
                 className="dimension-text"
                 fill="var(--danger)"
@@ -585,16 +588,7 @@ export default function Drawing({
             <text
               className="drawing-caption"
               x="400"
-              y={Math.min(
-                555,
-                sectionTop +
-                  30 +
-                  Math.max(
-                    sectionHeight,
-                    ...sectionRebar.lines.map((line) => line.b.y),
-                  ) *
-                    s,
-              )}
+              y={sectionCaptionY}
               textAnchor="middle"
             >
               {`SEÇÃO A–A · 1º ESTRIBO · x = ${number(sectionX / 10, 2)} cm`}
@@ -820,21 +814,38 @@ export default function Drawing({
                   <path
                     d={`M${tipX + 5} ${Y(0)}H${heightX + 8} M${X(0) + 5} ${rootBottom}H${heightX + 8}`}
                   />
-                  {heightDifference !== 0 && (
+                  {tipBottom !== rootBottom && (
                     <path
                       d={`M${tipX + 5} ${tipBottom}H${heightDifferenceX + 8}`}
                     />
                   )}
                 </g>
-                <Dim
-                  x1={X(0)}
-                  y1={loadDimensionY}
-                  x2={X(g.loadOffset)}
-                  y2={loadDimensionY}
-                  label={cm("loadOffset")}
-                  onClick={(anchor) => onDimension("loadOffset", anchor)}
-                  active={focus === "loadOffset"}
-                />
+                {measured.map(({ id, from, to, placement, value }) => {
+                  const axis = dimensionAxes[id];
+                  const horizontal =
+                    placement === "top" || placement === "bottom";
+                  return (
+                    <Dim
+                      key={id}
+                      x1={horizontal ? X(from.x) : axis}
+                      y1={horizontal ? axis : Y(from.depth)}
+                      x2={horizontal ? X(to.x) : axis}
+                      y2={horizontal ? axis : Y(to.depth)}
+                      label={dimensionLabel(id, value)}
+                      active={focus === id}
+                      description={
+                        id === "heightDifference"
+                          ? dimensionMetadata[id].label
+                          : undefined
+                      }
+                      onClick={
+                        id === "heightDifference"
+                          ? undefined
+                          : (anchor) => onDimension(id, anchor)
+                      }
+                    />
+                  );
+                })}
                 {reaction.shift !== 0 && (
                   <text
                     className="drawing-caption"
@@ -844,52 +855,6 @@ export default function Drawing({
                     a_calc = {number(reaction.a / 10, 1)} cm
                   </text>
                 )}
-                <Dim
-                  x1={X(0)}
-                  y1={lengthDimensionY}
-                  x2={tipX}
-                  y2={lengthDimensionY}
-                  label={cm("length")}
-                  onClick={(anchor) => onDimension("length", anchor)}
-                  active={focus === "length"}
-                />
-                <Dim
-                  x1={tipHeightX}
-                  y1={Y(0)}
-                  x2={tipHeightX}
-                  y2={tipBottom}
-                  label={cm("tipHeight")}
-                  onClick={(anchor) => onDimension("tipHeight", anchor)}
-                  active={focus === "tipHeight"}
-                />
-                {heightDifference !== 0 && (
-                  <Dim
-                    x1={heightDifferenceX}
-                    y1={tipBottom}
-                    x2={heightDifferenceX}
-                    y2={rootBottom}
-                    label={`H1 = ${heightDifferenceFormat.format(heightDifference / 10)}`}
-                    description="Desnível vertical entre H e H2"
-                  />
-                )}
-                <Dim
-                  x1={heightX}
-                  y1={Y(0)}
-                  x2={heightX}
-                  y2={rootBottom}
-                  label={cm("height")}
-                  onClick={(anchor) => onDimension("height", anchor)}
-                  active={focus === "height"}
-                />
-                <Dim
-                  x1={X(-g.columnWidth)}
-                  y1={pillarDimensionY}
-                  x2={X(0)}
-                  y2={pillarDimensionY}
-                  label={cm("columnWidth")}
-                  onClick={(anchor) => onDimension("columnWidth", anchor)}
-                  active={focus === "columnWidth"}
-                />
               </>
             )}
             <text

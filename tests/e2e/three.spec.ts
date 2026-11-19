@@ -126,6 +126,40 @@ test("edita a cota 3D e mantém elevação, arquivo e histórico sincronizados",
     page.locator(".dimension").filter({ hasText: "L =" }),
   ).toContainText("32,5");
 });
+test("H1 em 3D acompanha H2 e fica oculta na seção retangular", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await open3d(page);
+  const view = page.getByTestId("viewport-3d");
+  await view.getByLabel("Orientação 3D").selectOption("front");
+  const drop = view.getByRole("img", { name: /^H1 =/ });
+  await expect(drop).toHaveText("H1 = 20,0 cm");
+  await expect(drop).toBeVisible();
+  await expect(drop).not.toHaveAttribute("tabindex", "0");
+  await expect(
+    view.getByRole("button", { name: /Editar cota 3D heightDifference/ }),
+  ).toHaveCount(0);
+  const tip = view.getByRole("button", {
+    name: "Editar cota 3D tipHeight",
+    exact: true,
+  });
+  for (const value of ["39,98", "40"]) {
+    await tip.click();
+    await expect(view.locator('label[for="dimension-3d-value"]')).toHaveText(
+      "Altura na ponta H2",
+    );
+    const input = view.getByLabel("Valor da cota 3D");
+    await input.fill(value);
+    await input.press("Enter");
+    if (value === "40") await expect(drop).toHaveCount(0);
+    else {
+      await expect(drop).toHaveText("H1 = 0,02 cm");
+      await expect(drop).toBeVisible();
+    }
+  }
+});
+
 test("camadas e tema afetam também a vista 3D, sem alterar o projeto", async ({
   page,
 }) => {
@@ -156,7 +190,8 @@ test("camadas e tema afetam também a vista 3D, sem alterar o projeto", async ({
     .getByRole("button", { name: "Alternar tema", exact: true })
     .click();
   await expect(view).toHaveCSS("background-color", "rgb(0, 0, 0)");
-  await expect(view.locator(".three-dimension-label")).toHaveCount(6);
+  await expect(view.locator("button.three-dimension-label")).toHaveCount(6);
+  await expect(view.getByRole("img", { name: /^H1 =/ })).toBeVisible();
   expect(await view.getAttribute("data-camera")).toBe(before);
   await page
     .getByRole("button", { name: "Concreto translúcido", exact: true })

@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Unifica símbolos, referências e rótulos em cm das cotas da modelagem, das seções, do 3D e da prancha (issue #72). As elevações e o 3D mostram A e P no topo, L na base e H2, H1 e H à direita. A seção A–A e os cortes da prancha cotam a largura na base real. A planta e o corte B–B identificam suas dimensões. As exportações vetoriais usam as cotas atualizadas do projeto no esquema 6.
+
 - Na elevação da modelagem, a cota A fica acima do consolo e L fica abaixo (issue #71). H1 mostra a diferença entre H e H2 em centímetros e acompanha a edição das alturas. A cota H1 fica oculta quando as duas alturas coincidem, e as indicações de carga ocupam uma faixa separada.
 
 - Completa os quantitativos da issue #63 por posição de armadura. A relação, os resumos e os CSVs usam os valores do modelo. O CSV do projeto inclui consumo de aço e concreto por peça. O resumo geral mostra o volume total de concreto e a taxa de aço do projeto. O espaçamento de N3/N3G usa as estações efetivamente detalhadas.

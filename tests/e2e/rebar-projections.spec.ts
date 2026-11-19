@@ -130,7 +130,7 @@ test("pinos no plano A–A aparecem com suas posições transversais", async ({
     .locator('.steel-detail-families [data-family="pin"]')
     .all()) {
     const box = (await pin.boundingBox())!;
-    expect(box.y).toBeGreaterThan(dimension.y + dimension.height);
+    expect(box.y + box.height).toBeLessThan(dimension.y);
   }
   await page.screenshot({ path: info.outputPath("pinos-no-corte.png") });
   await view(page, "Detalhamento");

@@ -155,7 +155,7 @@ test("elevação: edita as cinco cotas por clique e teclado e atualiza H1", asyn
   await expect(derived.locator("text")).toHaveText("H1 = 25,5");
 
   for (const [symbol, editorLabel, entry, key, h1] of [
-    ["H", "Altura H", "47", "Enter", "27,0"],
+    ["H", "Altura no pilar H", "47", "Enter", "27,0"],
     ["H2", "Altura na ponta H2", "46,75", "Space", "0,25"],
     ["L", "Comprimento L", "32", "Enter", "0,25"],
     ["A", "Posição da carga A", "15", "", "0,25"],
@@ -186,6 +186,45 @@ test("elevação: edita as cinco cotas por clique e teclado e atualiza H1", asyn
   await expect(derived).toHaveCount(0);
   await page.getByRole("button", { name: "Desfazer", exact: true }).click();
   await expect(derived.locator("text")).toHaveText("H1 = 0,25");
+});
+
+test("seção A–A: b parte da base real e H(x1) mede o concreto no corte", async ({
+  page,
+}) => {
+  const piece = exampleProject().pieces[0];
+  const depth = bottomDepth(
+    concreteProfile(piece),
+    stirrupLayout(piece).positions[0],
+  );
+  await page.goto("/");
+  await page
+    .locator(".document-tabs")
+    .getByRole("button", { name: "Seção A–A", exact: true })
+    .click();
+  const drawing = page.getByRole("group", {
+    name: "Seção transversal do consolo C01",
+  });
+  const model = drawing.getByTestId("drawing-model");
+  const shape = model.locator(":scope > rect").first();
+  const x = Number(await shape.getAttribute("x"));
+  const y = Number(await shape.getAttribute("y"));
+  const width = Number(await shape.getAttribute("width"));
+  const height = Number(await shape.getAttribute("height"));
+  const b = await measuredSegment(elevationDimension(drawing, "b"));
+  expect(b.x1).toBeCloseTo(x, 9);
+  expect(b.x2).toBeCloseTo(x + width, 9);
+  expect(b.y1).toBeGreaterThan(y + height);
+  const sectionHeight = drawing.getByRole("img", { name: /^H\(x1\) =/ });
+  await expect(sectionHeight.locator("text")).toHaveText(
+    `H(x1) = ${number(depth / 10)}`,
+  );
+  const h = await measuredSegment(sectionHeight);
+  expect(h.y1).toBeCloseTo(y, 9);
+  expect(h.y2).toBeCloseTo(y + height, 9);
+  const extension = await model
+    .locator(":scope > .dimension-extension > path")
+    .getAttribute("d");
+  expect(extension).toContain(`M${x} ${y + height + 5}V`);
 });
 
 test("edita, desfaz, salva, reabre, revisa e exporta", async ({
@@ -754,7 +793,7 @@ for (const layers of [1, 3]) {
     await expect(
       section.getByRole("button", { name: /^Editar b =/ }),
     ).toHaveCount(1);
-    await expect(section.getByRole("img", { name: /^h\(x1\) =/ })).toHaveCount(
+    await expect(section.getByRole("img", { name: /^H\(x1\) =/ })).toHaveCount(
       1,
     );
     await section

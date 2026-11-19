@@ -19,6 +19,10 @@ O módulo produz desenhos locais soltos: elevação de armaduras, planta dos tir
 - Os cortes identificam sua coordenada x. A–A atravessa o primeiro estribo vertical e B–B atravessa o centro do apoio. As costuras horizontais aparecem nos cruzamentos com o plano ou como segmentos quando pertencem ao plano. O corte usa o perímetro de N2/N2I conforme a convenção de representação dos ganchos.
 - As barras do pilar não são inferidas: o suporte aparece como fragmento, com indicação de interrupção. Sua compatibilização pertence ao projeto de conjunto.
 
+Na elevação, **P** mede o pilar e **A** vai da face do pilar ao eixo nominal do apoio. Ambas ficam no topo. **L** mede o consolo na base. À direita, **H2** mede a altura na ponta, **H1** mede o desnível entre a ponta e a face do pilar e **H** mede a altura total. A cota H1 aparece quando H é maior que H2.
+
+Na planta, **L** aparece abaixo e **b** mede a largura na lateral. Nos dois cortes, **b** se refere aos vértices da base real. **H(x1)** indica a altura de concreto na estação do primeiro estribo em A–A. **H(B-B)** indica a altura de concreto no eixo nominal do apoio em B–B. As cotas acompanham a geometria corrente em SVG, DXF e PDF.
+
 ## Tirante simples e duplo
 
 **Duplo** significa duas camadas de tirante na mesma face do suporte; não representa consolos nos dois lados de um pilar. A contagem de ramos e a bitola são os dados físicos já usados no motor. Alterar o número de camadas recalcula o centroide e a altura útil.
@@ -76,7 +80,7 @@ O módulo recalcula a peça atual e acrescenta verificações de fabricação. F
 
 Os pinos opcionais têm espaçamento entre eixos e deslocamento transversal configuráveis, com cotas no corte. Zero no espaçamento ativa distribuição simétrica dentro do apoio. São verificadas as interferências geométricas com tirante e estribos verticais. São desenhados e quantificados com embutimento e espera; sua resistência, ancoragem e ligação à peça apoiada não são dimensionadas por este módulo. A configuração com armaduras especiais de suspensão ou fendilhamento não possui ainda suas formas completas de fabricação: recebe pendência impeditiva e informa a ausência no quadro. O detalhamento do pilar e do aparelho de apoio completo, soldas qualificadas, ganchos semicirculares de barras lisas CA-25, dentes Gerber e consolos nas duas faces permanecem fora do gerador local.
 
-As vistas 2D/3D de modelagem usam as mesmas barras físicas do detalhamento (ver “Fonte única das armaduras”); as posições de fabricação, os comprimentos e as cotas executivas estão na aba Detalhamento. A espessura gráfica das barras e as cotas das vistas de modelagem ainda não estão em escala real (issues #69 e #72). O motor estrutural é o 0.3.0; esta entrega não amplia seu escopo para análise espacial ou global.
+As vistas 2D/3D de modelagem usam as mesmas barras físicas e as mesmas referências de cotas do detalhamento. As posições de fabricação e os comprimentos estão na aba Detalhamento. O enquadramento determina a escala de exibição na modelagem. A representação da bitola em escala geométrica é acompanhada na issue #69. O motor estrutural é o 0.3.0 e seu domínio é o dimensionamento local.
 
 ## Reproduzir exemplos e testar
 
