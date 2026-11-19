@@ -39,10 +39,10 @@ export function zoomCamera(
 }
 const labels: Record<GeometryKey, string> = {
   width: "Largura b",
-  height: "Altura h",
-  tipHeight: "Altura na ponta h₂",
+  height: "Altura H",
+  tipHeight: "Altura na ponta H2",
   length: "Comprimento L",
-  loadOffset: "Posição da carga a",
+  loadOffset: "Posição da carga A",
   columnWidth: "Dimensão do pilar P",
   cover: "Cobrimento c",
 };

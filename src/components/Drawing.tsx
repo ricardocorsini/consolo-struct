@@ -24,6 +24,20 @@ type Props = {
   onDimension: (key: GeometryKey, anchor: { x: number; y: number }) => void;
   onBar: (id: string) => void;
 };
+const dimensionSymbols: Record<GeometryKey, string> = {
+  width: "b",
+  height: "H",
+  tipHeight: "H2",
+  length: "L",
+  loadOffset: "A",
+  columnWidth: "P",
+  cover: "c",
+};
+const verticalDimensionLabelHeight = 68;
+const heightDifferenceFormat = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 8,
+});
 function Dim({
   x1,
   y1,
@@ -31,6 +45,7 @@ function Dim({
   y2,
   label,
   active,
+  description,
   onClick,
 }: {
   x1: number;
@@ -39,50 +54,51 @@ function Dim({
   y2: number;
   label: string;
   active?: boolean;
-  onClick: (anchor: { x: number; y: number }) => void;
+  description?: string;
+  onClick?: (anchor: { x: number; y: number }) => void;
 }) {
   const vertical = x1 === x2;
+  const labelX = vertical ? x1 + 20 : (x1 + x2) / 2;
+  const labelY = vertical ? (y1 + y2) / 2 : y1 - 7;
+  const edit = (group: SVGGElement) => {
+    const r = group.querySelector("rect")!.getBoundingClientRect();
+    onClick?.({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+  };
   return (
     <g
-      className={`dimension ${active ? "dimension-active" : ""}`}
-      role="button"
-      aria-label={`Editar ${label}`}
-      tabIndex={0}
-      onClick={(e) => {
-        const r = e.currentTarget
-          .querySelector("rect")!
-          .getBoundingClientRect();
-        onClick({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          const r = e.currentTarget
-            .querySelector("rect")!
-            .getBoundingClientRect();
-          onClick({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
-        }
-      }}
+      className={`dimension${onClick ? "" : " dimension-derived"}${active ? " dimension-active" : ""}`}
+      role={onClick ? "button" : "img"}
+      aria-label={onClick ? `Editar ${label}` : `${label} cm · ${description}`}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick && ((e) => edit(e.currentTarget))}
+      onKeyDown={
+        onClick &&
+        ((e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            edit(e.currentTarget);
+          }
+        })
+      }
     >
+      {description && <title>{description}</title>}
+      <rect
+        x={vertical ? x1 + 6 : labelX - 35}
+        y={vertical ? labelY - verticalDimensionLabelHeight / 2 : y1 - 23}
+        width={vertical ? 26 : 70}
+        height={vertical ? verticalDimensionLabelHeight : 24}
+        rx="0"
+      />
       <path
         d={`M${x1} ${y1}L${x2} ${y2} M${x1 - 4} ${y1 + 4}l8 -8 M${x2 - 4} ${y2 + 4}l8 -8`}
         fill="none"
       />
-      <rect
-        x={vertical ? x1 - 16 : (x1 + x2) / 2 - 35}
-        y={vertical ? (y1 + y2) / 2 - 34 : y1 - 23}
-        width={vertical ? 26 : 70}
-        height={vertical ? 68 : 24}
-        rx="0"
-      />
       <text
-        x={vertical ? x1 + 4 : (x1 + x2) / 2}
-        y={vertical ? (y1 + y2) / 2 : y1 - 7}
+        x={labelX}
+        y={labelY}
         textAnchor="middle"
-        transform={
-          vertical ? `rotate(-90 ${x1 + 4} ${(y1 + y2) / 2})` : undefined
-        }
+        transform={vertical ? `rotate(-90 ${labelX} ${labelY})` : undefined}
       >
         {label}
       </text>
@@ -162,12 +178,20 @@ export default function Drawing({
     g.height,
     ...sectionRebar.lines.flatMap((line) => [line.a.y, line.b.y]),
   );
+  const bearingLeft = g.loadOffset - p.design.bearingLength / 2;
+  const bearingRight = g.loadOffset + p.design.bearingLength / 2;
+  const elevationLeft = Math.min(-g.columnWidth, bearingLeft);
+  const elevationRight = Math.max(g.length, bearingRight);
   const s = Math.min(
-    480 / (g.columnWidth + g.length),
-    340 / (section ? sectionHeadroom + sectionBottom + 80 : g.height + 80),
-    // Keep the section and its external dimensions inside the drawing.
-    // Elevation keeps its existing scale; narrow sections are unchanged.
-    section ? 480 / g.width : Infinity,
+    480 / (section ? g.columnWidth + g.length : elevationRight - elevationLeft),
+    340 /
+      (section
+        ? sectionHeadroom + sectionBottom + 80
+        : Math.max(g.height + 80, g.tipHeight)),
+    // Leave room above the pillar and pad for dimensions and force arrows.
+    section
+      ? 480 / g.width
+      : Math.min(1, 40 / Math.max(1, p.design.bearingHeight)),
   );
   const sectionLeft = 400 - (g.width * s) / 2;
   const stitchRadius = (p.rebar.stitchDiameter * s) / 2;
@@ -201,10 +225,40 @@ export default function Drawing({
   const sectionTop = 140 + sectionHeadroom * s;
   const sectionCentroid = sectionTop + layout.dPrime * s;
   const dPrimeLabel = `d’ = ${number(layout.dPrime / 10, 1)} cm`;
-  const ox = (800 - (g.columnWidth + g.length) * s) / 2 + g.columnWidth * s,
-    oy = 185;
+  const ox = 400 - ((elevationLeft + elevationRight) * s) / 2;
+  const oy = 185;
   const X = (x: number) => ox + x * s,
     Y = (y: number) => oy + y * s;
+  const tipX = X(g.length);
+  const bearingTop = Y(-p.design.bearingHeight);
+  const columnTop = Y(-100);
+  const tipBottom = Y(g.tipHeight);
+  const rootBottom = Y(g.height);
+  const forceX = X(reaction.a);
+  const verticalForceEnd = bearingTop - 4;
+  const horizontalForceY = verticalForceEnd - 14;
+  const verticalForceStart = horizontalForceY - 42;
+  const forceLabelOnLeft = tipX - forceX < 84;
+  const forceLabelX = forceX + (forceLabelOnLeft ? -12 : 12);
+  const forceLabelAnchor = forceLabelOnLeft ? "end" : "start";
+  const loadLineEnd = forces ? verticalForceStart : bearingTop;
+  const loadDimensionY = Math.min(
+    columnTop - 16,
+    loadLineEnd - (reaction.shift ? 28 : 12),
+  );
+  const pillarDimensionY =
+    (g.columnWidth + g.loadOffset) * s < 160
+      ? loadDimensionY - 30
+      : loadDimensionY;
+  const lengthDimensionY = Y(g.height + 80) + 32;
+  const heightDifference = g.height - g.tipHeight;
+  const tipHeightX = tipX + 35;
+  // A short segment needs its own column so both height labels stay legible.
+  const separateHeight =
+    heightDifference !== 0 &&
+    Math.min(g.tipHeight, heightDifference) * s < verticalDimensionLabelHeight;
+  const heightDifferenceX = tipHeightX + (separateHeight ? 43 : 0);
+  const heightX = heightDifferenceX + 48;
   const concrete = concreteProfile(p);
   const sectionHeight = bottomDepth(concrete, sectionX);
   const cut = concrete.status === "removed";
@@ -234,7 +288,7 @@ export default function Drawing({
     },
   });
   const cm = (key: GeometryKey) =>
-    `${key === "width" ? "b" : key === "height" ? "h" : key === "tipHeight" ? "h₂" : key === "length" ? "L" : key === "loadOffset" ? "a" : "P"} = ${number(g[key] / 10, 1)}`;
+    `${dimensionSymbols[key]} = ${number(g[key] / 10, 1)}`;
   return (
     <svg
       id="piece-drawing"
@@ -707,41 +761,43 @@ export default function Drawing({
               </>
             )}
             <rect
-              x={X(g.loadOffset - p.design.bearingLength / 2)}
-              y={Y(-p.design.bearingHeight)}
+              x={X(bearingLeft)}
+              y={bearingTop}
               width={p.design.bearingLength * s}
               height={Math.max(3, p.design.bearingHeight * s)}
               fill="var(--line-muted)"
               opacity=".55"
             />
             {forces && (
-              <>
+              <g className="elevation-forces">
                 <path
-                  d={`M${X(reaction.a)} ${Y(-100)}V${Y(-9)}`}
+                  d={`M${forceX} ${verticalForceStart}V${verticalForceEnd}`}
                   stroke="var(--force)"
                   strokeWidth="2.5"
                   markerEnd={`url(#${uid}arrow)`}
                 />
-                <text className="force-label" x={X(reaction.a) + 12} y={Y(-85)}>
+                <text
+                  className="force-label"
+                  x={forceLabelX}
+                  y={verticalForceStart + 11}
+                  textAnchor={forceLabelAnchor}
+                >
                   {p.design.forceMode === "design" ? "Vd" : "Vk"} ={" "}
                   {number(p.loads.vertical / 1000, 0)} kN
                 </text>
                 {p.loads.horizontal !== 0 && (
                   <>
                     <path
-                      d={
-                        p.loads.horizontal > 0
-                          ? `M${X(reaction.a)} ${Y(-15)}h65`
-                          : `M${X(reaction.a)} ${Y(-15)}h-65`
-                      }
+                      d={`M${forceX} ${horizontalForceY}h${p.loads.horizontal > 0 ? 65 : -65}`}
                       stroke="var(--force)"
                       strokeWidth="2"
                       markerEnd={`url(#${uid}arrow)`}
                     />
                     <text
                       className="force-label"
-                      x={X(reaction.a) + 12}
-                      y={Y(-15) - 12}
+                      x={forceLabelX}
+                      y={horizontalForceY - 8}
+                      textAnchor={forceLabelAnchor}
                     >
                       {p.design.horizontalMode === "estimated"
                         ? "H adic."
@@ -750,29 +806,31 @@ export default function Drawing({
                     </text>
                   </>
                 )}
-              </>
+              </g>
             )}
             {dimensions && (
               <>
                 <g className="dimension-extension" fill="none">
                   <path
-                    d={`M${X(-g.columnWidth)} ${Y(-105)}V${Y(-160)} M${X(0)} ${Y(-105)}V${Y(-160)} M${X(g.length)} ${Y(-5)}V${Y(-160)} M${X(g.length) + 5} ${Y(0)}h95 M${X(g.length) + 5} ${Y(g.tipHeight)}h48 M${X(0) + 5} ${Y(g.height)}H${X(g.length) + 100} M${X(0)} ${Y(g.height) + 5}V${Y(g.height + 55)} M${X(g.loadOffset)} ${Y(g.height) + 5}V${Y(g.height + 55)}`}
+                    d={`M${X(-g.columnWidth)} ${columnTop - 5}V${pillarDimensionY - 6} M${X(0)} ${Math.min(columnTop, loadLineEnd) - 5}V${pillarDimensionY - 6} M${X(g.loadOffset)} ${loadLineEnd - 5}V${loadDimensionY - 6}`}
                   />
+                  <path
+                    d={`M${X(0)} ${rootBottom + 5}V${lengthDimensionY + 6} M${tipX} ${tipBottom + 5}V${lengthDimensionY + 6}`}
+                  />
+                  <path
+                    d={`M${tipX + 5} ${Y(0)}H${heightX + 8} M${X(0) + 5} ${rootBottom}H${heightX + 8}`}
+                  />
+                  {heightDifference !== 0 && (
+                    <path
+                      d={`M${tipX + 5} ${tipBottom}H${heightDifferenceX + 8}`}
+                    />
+                  )}
                 </g>
                 <Dim
                   x1={X(0)}
-                  y1={Y(-145)}
-                  x2={X(g.length)}
-                  y2={Y(-145)}
-                  label={cm("length")}
-                  onClick={(anchor) => onDimension("length", anchor)}
-                  active={focus === "length"}
-                />
-                <Dim
-                  x1={X(0)}
-                  y1={Y(g.height + 40)}
+                  y1={loadDimensionY}
                   x2={X(g.loadOffset)}
-                  y2={Y(g.height + 40)}
+                  y2={loadDimensionY}
                   label={cm("loadOffset")}
                   onClick={(anchor) => onDimension("loadOffset", anchor)}
                   active={focus === "loadOffset"}
@@ -780,36 +838,54 @@ export default function Drawing({
                 {reaction.shift !== 0 && (
                   <text
                     className="drawing-caption"
-                    x={X(reaction.a)}
-                    y={Y(g.height + 75)}
-                    textAnchor="middle"
+                    x={X(g.loadOffset) + 12}
+                    y={loadDimensionY + 18}
                   >
                     a_calc = {number(reaction.a / 10, 1)} cm
                   </text>
                 )}
                 <Dim
-                  x1={X(g.length) + 38}
+                  x1={X(0)}
+                  y1={lengthDimensionY}
+                  x2={tipX}
+                  y2={lengthDimensionY}
+                  label={cm("length")}
+                  onClick={(anchor) => onDimension("length", anchor)}
+                  active={focus === "length"}
+                />
+                <Dim
+                  x1={tipHeightX}
                   y1={Y(0)}
-                  x2={X(g.length) + 38}
-                  y2={Y(g.tipHeight)}
+                  x2={tipHeightX}
+                  y2={tipBottom}
                   label={cm("tipHeight")}
                   onClick={(anchor) => onDimension("tipHeight", anchor)}
                   active={focus === "tipHeight"}
                 />
+                {heightDifference !== 0 && (
+                  <Dim
+                    x1={heightDifferenceX}
+                    y1={tipBottom}
+                    x2={heightDifferenceX}
+                    y2={rootBottom}
+                    label={`H1 = ${heightDifferenceFormat.format(heightDifference / 10)}`}
+                    description="Desnível vertical entre H e H2"
+                  />
+                )}
                 <Dim
-                  x1={X(g.length) + 85}
+                  x1={heightX}
                   y1={Y(0)}
-                  x2={X(g.length) + 85}
-                  y2={Y(g.height)}
+                  x2={heightX}
+                  y2={rootBottom}
                   label={cm("height")}
                   onClick={(anchor) => onDimension("height", anchor)}
                   active={focus === "height"}
                 />
                 <Dim
                   x1={X(-g.columnWidth)}
-                  y1={Y(-145)}
+                  y1={pillarDimensionY}
                   x2={X(0)}
-                  y2={Y(-145)}
+                  y2={pillarDimensionY}
                   label={cm("columnWidth")}
                   onClick={(anchor) => onDimension("columnWidth", anchor)}
                   active={focus === "columnWidth"}
@@ -827,15 +903,11 @@ export default function Drawing({
             {rebar && (
               <>
                 <path
-                  d={`M${X(g.length - g.cover)} ${Y(g.cover)}l32 20h38`}
+                  d={`M${X(g.length - g.cover)} ${Y(g.cover)}L${tipX + 9} ${Y(g.cover) + 20}`}
                   stroke="var(--force)"
                   fill="none"
                 />
-                <text
-                  x={X(g.length - g.cover) + 77}
-                  y={Y(g.cover) + 24}
-                  className="bar-label"
-                >
+                <text x={tipX + 12} y={Y(g.cover) + 24} className="bar-label">
                   N1
                 </text>
               </>

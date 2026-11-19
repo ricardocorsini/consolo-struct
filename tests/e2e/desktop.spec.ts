@@ -153,7 +153,8 @@ test("ribbon, redimensionamento dos painéis, camadas e temas", async ({
   await ribbon
     .getByRole("button", { name: "Mostrar cotas", exact: true })
     .click();
-  await expect(page.locator(".dimension")).toHaveCount(5);
+  await expect(page.locator('.dimension[role="button"]')).toHaveCount(5);
+  await expect(page.getByRole("img", { name: /^H1 =/ })).toBeVisible();
   await ribbon
     .getByRole("button", { name: "Mostrar cargas", exact: true })
     .click();

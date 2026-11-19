@@ -11,6 +11,183 @@ import {
   upperStitchLayout,
 } from "../../src/domain/theory";
 import { bottomDepth, concreteProfile } from "../../src/domain/profile";
+
+const elevationDimension = (drawing: Locator, symbol: string) =>
+  drawing.getByRole("button", { name: new RegExp(`^Editar ${symbol} =`) });
+
+async function measuredSegment(dimension: Locator) {
+  const path = (await dimension.locator("path").getAttribute("d"))!;
+  const [x1, y1, x2, y2] = path
+    .slice(1, path.indexOf(" M"))
+    .split(/[ L]/)
+    .map(Number);
+  return { x1, y1, x2, y2 };
+}
+
+const drawingBounds = (element: Locator) =>
+  element.evaluate((node: SVGGraphicsElement) => {
+    const { x, y, width, height } = node.getBBox();
+    return { left: x, top: y, right: x + width, bottom: y + height };
+  });
+
+for (const compact of [false, true]) {
+  test(`elevação: A, L e H1 medem a geometria sem colidir com as forças (${compact ? "desnível curto" : "peça padrão"})`, async ({
+    page,
+  }) => {
+    const project = exampleProject();
+    const piece = project.pieces[0];
+    piece.design.reactionPosition = "outerThird";
+    if (compact) {
+      Object.assign(piece.geometry, {
+        height: 280,
+        tipHeight: 277,
+        columnWidth: 280,
+        length: 1300,
+        loadOffset: 500,
+      });
+      piece.design.bearingHeight = 160;
+      piece.design.forceMode = "design";
+      piece.loads.horizontal = -45000;
+      await page.setViewportSize({ width: 1150, height: 780 });
+    }
+    await page.addInitScript(
+      (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+      JSON.stringify(project),
+    );
+    await page.goto("/");
+
+    const drawing = page.getByRole("group", {
+      name: "Elevação do consolo C01",
+    });
+    const model = drawing.getByTestId("drawing-model");
+    const outline = (await model
+      .locator(":scope > path")
+      .first()
+      .getAttribute("d"))!;
+    const [, , faceX, topY, tipX, , tipY, , rootY] = outline
+      .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!
+      .map(Number);
+    const scale = (tipX - faceX) / piece.geometry.length;
+    const load = elevationDimension(drawing, "A");
+    const length = await measuredSegment(elevationDimension(drawing, "L"));
+    const offset = await measuredSegment(load);
+    expect(offset.x1).toBeCloseTo(faceX, 8);
+    expect(offset.x2).toBeCloseTo(faceX + piece.geometry.loadOffset * scale, 8);
+    expect(offset.y1).toBe(offset.y2);
+    expect(offset.y1).toBeLessThan(topY);
+    expect(length.x1).toBeCloseTo(faceX, 8);
+    expect(length.x2).toBeCloseTo(tipX, 8);
+    expect(length.y1).toBe(length.y2);
+    expect(length.y1).toBeGreaterThan(rootY);
+
+    const h1 = drawing.getByRole("img", { name: /^H1 =/ });
+    const value = number(
+      (piece.geometry.height - piece.geometry.tipHeight) / 10,
+    );
+    await expect(h1.locator("text")).toHaveText(`H1 = ${value}`);
+    await expect(h1).toHaveClass(/dimension-derived/);
+    const difference = await measuredSegment(h1);
+    const tip = await measuredSegment(elevationDimension(drawing, "H2"));
+    const total = await measuredSegment(elevationDimension(drawing, "H"));
+    expect(difference.x1).toBe(difference.x2);
+    if (compact) expect(difference.x1).toBeGreaterThan(tip.x1);
+    else expect(difference.x1).toBe(tip.x1);
+    expect(total.x1).toBeGreaterThan(difference.x1);
+    expect(
+      (await drawingBounds(model.locator(".bar-label"))).right,
+    ).toBeLessThan(tip.x1);
+    expect(difference.y1).toBeCloseTo(tipY, 8);
+    expect(difference.y2).toBeCloseTo(rootY, 8);
+    expect([tip.y1, tip.y2, total.y1, total.y2]).toEqual([
+      topY,
+      tipY,
+      topY,
+      rootY,
+    ]);
+    const extensions = await model
+      .locator(":scope > .dimension-extension > path")
+      .evaluateAll((paths) =>
+        paths.map((path) => path.getAttribute("d")).join(" "),
+      );
+    expect(extensions).toContain(`M${tipX + 5} ${tipY}H${difference.x1 + 8}`);
+    expect(extensions).toContain(`M${faceX + 5} ${rootY}H${total.x1 + 8}`);
+    expect(extensions).toContain(`M${offset.x2} `);
+    expect(extensions).toContain(`M${tipX} ${tipY + 5}V${length.y1 + 6}`);
+
+    const forces = model.locator(".elevation-forces");
+    await expect(forces.locator("path")).toHaveCount(2);
+    await expect(forces.locator(".force-label").first()).toContainText(
+      compact ? "Vd" : "Vk",
+    );
+    const caption = model.getByText(
+      `a_calc = ${number(reactionGeometry(piece).a / 10)} cm`,
+    );
+    await expect(caption).toBeVisible();
+    const loadsTop = (await drawingBounds(forces)).top;
+    expect((await drawingBounds(load)).bottom).toBeLessThan(loadsTop);
+    expect((await drawingBounds(caption)).bottom).toBeLessThan(loadsTop);
+    const bearingTop = Number(
+      await model.locator(":scope > rect").getAttribute("y"),
+    );
+    expect((await drawingBounds(load)).bottom).toBeLessThan(bearingTop);
+    for (const annotation of await drawing
+      .locator(".dimension, .elevation-forces")
+      .all()) {
+      const { left, top, right, bottom } = await drawingBounds(annotation);
+      expect(left).toBeGreaterThan(0);
+      expect(top).toBeGreaterThan(0);
+      expect(right).toBeLessThan(800);
+      expect(bottom).toBeLessThan(600);
+    }
+  });
+}
+
+test("elevação: edita as cinco cotas por clique e teclado e atualiza H1", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const drawing = page.getByRole("group", { name: "Elevação do consolo C01" });
+  const derived = drawing.getByRole("img", { name: /^H1 =/ });
+  await expect(derived.locator("text")).toHaveText("H1 = 20,0");
+  const panelHeight = page.getByRole("textbox", { name: /^Altura no pilar/ });
+  await panelHeight.fill("45,5");
+  await panelHeight.press("Enter");
+  await expect(derived.locator("text")).toHaveText("H1 = 25,5");
+
+  for (const [symbol, editorLabel, entry, key, h1] of [
+    ["H", "Altura H", "47", "Enter", "27,0"],
+    ["H2", "Altura na ponta H2", "46,75", "Space", "0,25"],
+    ["L", "Comprimento L", "32", "Enter", "0,25"],
+    ["A", "Posição da carga A", "15", "", "0,25"],
+    ["P", "Dimensão do pilar P", "35", "Space", "0,25"],
+  ]) {
+    const dimension = elevationDimension(drawing, symbol);
+    if (key) await dimension.press(key);
+    else await dimension.locator("text").click();
+    await expect(page.locator(".dimension-editor label")).toHaveText(
+      editorLabel,
+    );
+    const input = page.getByLabel("Valor da cota");
+    await expect(input).toBeFocused();
+    await input.fill(entry);
+    await input.press("Enter");
+    await expect(dimension).toHaveText(
+      `${symbol} = ${number(Number(entry.replace(",", ".")))}`,
+    );
+    await expect(derived.locator("text")).toHaveText(`H1 = ${h1}`);
+  }
+  await expect(derived).not.toHaveAttribute("tabindex", "0");
+  await expect(
+    drawing.getByRole("button", { name: /^Editar H1 =/ }),
+  ).toHaveCount(0);
+  const panelTip = page.getByRole("textbox", { name: /^Altura na ponta/ });
+  await panelTip.fill("47");
+  await panelTip.press("Enter");
+  await expect(derived).toHaveCount(0);
+  await page.getByRole("button", { name: "Desfazer", exact: true }).click();
+  await expect(derived.locator("text")).toHaveText("H1 = 0,25");
+});
+
 test("edita, desfaz, salva, reabre, revisa e exporta", async ({
   page,
 }, testInfo) => {
@@ -22,7 +199,7 @@ test("edita, desfaz, salva, reabre, revisa e exporta", async ({
   ).toBeVisible();
   await page.getByLabel("Altura no pilar").fill("45,5");
   await page.getByLabel("Altura no pilar").press("Enter");
-  await expect(page.locator("svg").getByText("h = 45,5")).toBeVisible();
+  await expect(page.locator("svg").getByText("H = 45,5")).toBeVisible();
   await page.getByRole("button", { name: "Desfazer", exact: true }).click();
   await expect(page.getByLabel("Altura no pilar")).toHaveValue("40");
   await page.getByRole("button", { name: "Refazer", exact: true }).click();
