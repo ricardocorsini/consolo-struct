@@ -1,5 +1,11 @@
 import type { Detail } from "./model";
-import { colors, type Drawing, type Entity, type Layer } from "./drawing";
+import {
+  colors,
+  maxPdfPageSide,
+  type Drawing,
+  type Entity,
+  type Layer,
+} from "./drawing";
 import { at, type Point } from "./geometry";
 import { steelLabel } from "../domain/steel";
 import { gammaNDecision, gammaNPolicyLabels } from "../domain/gammaN";
@@ -25,7 +31,12 @@ const drawingWidth = (e: Entity) =>
   barWidth(e) ?? (e.layer === "FORMAS" ? 0.25 : 0.13);
 export function entitySvg(e: Entity): string {
   const thickness = barWidth(e);
-  const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${drawingWidth(e)}"${thickness === undefined ? "" : ` stroke-linecap="butt" stroke-linejoin="round" data-physical-diameter="${coordinate(thickness * 10)}"`}`;
+  const schematic = (e.type === "line" || e.type === "arc") && e.schematic;
+  const steelStyle =
+    thickness === undefined
+      ? ""
+      : ` stroke-linecap="butt" stroke-linejoin="round" ${schematic ? `data-schematic-bar="${escapeXml(schematic)}"` : `data-physical-diameter="${coordinate(thickness * 10)}"`}`;
+  const common = `class="detail-${e.layer}" fill="none" stroke="${colors[e.layer]}" stroke-width="${drawingWidth(e)}"${steelStyle}`;
   if (e.type === "line")
     return `<line x1="${coordinate(e.a.x)}" y1="${coordinate(e.a.y)}" x2="${coordinate(e.b.x)}" y2="${coordinate(e.b.y)}" ${common}${e.dash ? ' stroke-dasharray="2 1"' : ""}/>`;
   if (e.type === "arc") {
@@ -224,10 +235,10 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
   const first = drawings[0];
   if (!first) throw new Error("Selecione ao menos um consolo.");
   const pageSize = (drawing: Drawing) =>
-    [Math.min(4500, drawing.width), Math.min(4500, drawing.height)] as [
-      number,
-      number,
-    ];
+    [
+      Math.min(maxPdfPageSide, drawing.width),
+      Math.min(maxPdfPageSide, drawing.height),
+    ] as [number, number];
   const doc = new jsPDF({
     unit: "mm",
     format: pageSize(first),
@@ -271,7 +282,7 @@ export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
     }
   };
   drawings.forEach((drawing, index) => {
-    if (drawing.width > 4500 || drawing.height > 4500)
+    if (drawing.width > maxPdfPageSide || drawing.height > maxPdfPageSide)
       throw new Error(
         "Este detalhe ultrapassa o tamanho máximo do PDF. Use DXF ou SVG para este arranjo.",
       );

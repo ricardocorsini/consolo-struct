@@ -1,21 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { inflateSync } from "node:zlib";
 import {
   closedStirrup,
+  pathLength,
   roundedPath,
   samplePath,
   steelMass,
 } from "../src/detailing/geometry";
 import { buildDetail } from "../src/detailing/model";
-import { combineDrawings, pieceDrawing } from "../src/detailing/drawing";
+import {
+  combineDrawings,
+  maxPdfPageSide,
+  pieceDrawing,
+  type Drawing,
+  type Entity,
+} from "../src/detailing/drawing";
 import { elevationShapes } from "../src/detailing/projection";
 import { projectPlan } from "../src/detailing/rebarModel";
 import {
   drawingDxf,
+  drawingPdf,
   drawingSvg,
   entitySvg,
   steelCsv,
 } from "../src/detailing/exports";
 import { buildSceneModel } from "../src/visualization/model3d";
+import { pathExtent } from "../src/detailing/rebarPlacement";
 import {
   decodeProject,
   exampleProject,
@@ -32,6 +42,267 @@ import {
   toSvg,
 } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
+
+const schematicHeading = "Desenho esquemático da armadura";
+type Stroke = Extract<Entity, { type: "line" | "arc" }>;
+const schematicStrokes = (drawing: Drawing, mark: string) =>
+  drawing.entities.filter(
+    (e): e is Stroke =>
+      (e.type === "line" || e.type === "arc") &&
+      e.layer === "ARMADURAS" &&
+      e.schematic === mark,
+  );
+
+function schematicCells(drawing: Drawing) {
+  const headings = drawing.entities.filter(
+    (e) => e.type === "text" && e.text === schematicHeading,
+  );
+  if (!headings.length) throw new Error("Cabeçalho do esquema ausente");
+  return headings.flatMap((heading) => {
+    const left = heading.at.x - 1.5;
+    const top = heading.at.y - 3.6;
+    const frame = drawing.entities.find(
+      (e) =>
+        e.type === "line" &&
+        e.layer === "COTAS" &&
+        e.a.x === left &&
+        e.b.x > left &&
+        Math.abs(e.a.y - top) < 1e-8 &&
+        e.a.y === e.b.y,
+    );
+    if (frame?.type !== "line") throw new Error("Célula do esquema ausente");
+    return drawing.entities
+      .flatMap((e) =>
+        e.type === "line" &&
+        e.layer === "COTAS" &&
+        e.a.x === left &&
+        e.b.x === left &&
+        e.a.y > e.b.y
+          ? [{ left, right: frame.b.x, top: e.b.y, bottom: e.a.y }]
+          : [],
+      )
+      .slice(1);
+  });
+}
+
+function schematicsFixture() {
+  const loop = shortFixture();
+  loop.design.supportAnchor = "hook";
+  loop.design.lowerStitchCount = 2;
+  loop.geometry.tipHeight = loop.geometry.height;
+  loop.detailing.supportHookProjection = 600;
+  loop.detailing.pins = 2;
+  const welded = newPiece(1);
+  welded.rebar.stirrupBranches = 4;
+  const beam = shortFixture();
+  beam.geometry.tipHeight = 450;
+  beam.detailing.barArrangement = "beam";
+  return [loop, welded, beam];
+}
+
+describe("Formas proporcionais na Relação do Aço (#70)", () => {
+  it("enquadra a geometria e as cotas de todas as posições na própria linha", () => {
+    const project = exampleProject();
+    const families = new Set<string>();
+    for (const piece of schematicsFixture()) {
+      const detail = buildDetail(piece);
+      const drawing = pieceDrawing(project, detail);
+      const cells = schematicCells(drawing);
+      expect(cells).toHaveLength(detail.bars.length);
+      expect(drawingSvg(drawing)).not.toContain(
+        "FORMAS DE DOBRAMENTO E POSIÇÕES",
+      );
+      for (const [i, bar] of detail.bars.entries()) {
+        families.add(bar.family);
+        const cell = cells[i];
+        const strokes = schematicStrokes(drawing, bar.mark);
+        const hook = bar.instances[0]?.parts.find(
+          (part) => part.role === "hook",
+        )?.path;
+        const source = [...bar.path.segments, ...(hook?.segments ?? [])];
+        expect(strokes.map((e) => e.type)).toEqual(
+          source.map((seg) => seg.type),
+        );
+        const scale = pathLength(strokes) / pathLength(source);
+        const path = {
+          segments: strokes,
+          length: pathLength(strokes),
+          valid: true,
+        };
+        const [left, right] = pathExtent(path, "x");
+        const [top, bottom] = pathExtent(path, "y");
+        const halfStroke =
+          Math.max(...strokes.map((e) => e.thickness ?? 0)) / 2;
+        expect(left - halfStroke).toBeGreaterThan(cell.left + 3);
+        expect(right + halfStroke).toBeLessThan(cell.right - 3);
+        expect(top - halfStroke).toBeGreaterThan(cell.top + 3);
+        expect(bottom + halfStroke).toBeLessThan(cell.bottom - 3);
+        for (const [j, seg] of source.entries()) {
+          const actual = strokes[j];
+          if (seg.type === "line" && actual.type === "line") {
+            expect(actual.b.x - actual.a.x).toBeCloseTo(
+              (seg.b.x - seg.a.x) * scale,
+              8,
+            );
+            expect(actual.b.y - actual.a.y).toBeCloseTo(
+              (seg.b.y - seg.a.y) * scale,
+              8,
+            );
+          } else if (seg.type === "arc" && actual.type === "arc") {
+            expect(actual.radius).toBeCloseTo(seg.radius * scale, 8);
+            expect(actual.start).toBe(seg.start);
+            expect(actual.sweep).toBe(seg.sweep);
+          }
+        }
+        const labels = drawing.entities.filter(
+          (e): e is Extract<Entity, { type: "text" }> =>
+            e.type === "text" &&
+            e.at.x > cell.left &&
+            e.at.x < cell.right &&
+            e.at.y > cell.top &&
+            e.at.y < cell.bottom,
+        );
+        expect(labels[0].text).toContain(bar.description);
+        for (const label of labels) {
+          expect(label.at.x).toBeGreaterThan(right + halfStroke);
+          expect(
+            label.at.x + label.text.length * label.size,
+          ).toBeLessThanOrEqual(cell.right - 3);
+          expect(label.at.y - label.size).toBeGreaterThanOrEqual(cell.top + 3);
+          expect(label.at.y).toBeLessThan(cell.bottom - 3);
+        }
+        if (hook) {
+          expect(labels.map((label) => label.text).join(" ")).toContain(
+            "Vista lateral",
+          );
+          expect(labels.map((label) => label.text).join(" ")).toContain(
+            "Gancho de 90° no suporte",
+          );
+        }
+      }
+    }
+    expect(families).toEqual(
+      new Set([
+        "tie",
+        "stitch",
+        "lower",
+        "stirrup",
+        "stirrupInner",
+        "constructive",
+        "positive",
+        "welded",
+        "pin",
+      ]),
+    );
+  });
+
+  it("recalcula as formas quando mudam geometria, mandril e ponta do gancho", () => {
+    const project = exampleProject();
+    const [piece] = schematicsFixture();
+    const before = pieceDrawing(project, buildDetail(piece));
+    piece.geometry.length += 150;
+    piece.design.loopInternalDiameter += 20;
+    piece.detailing.supportHookTail = 190;
+    const after = pieceDrawing(project, buildDetail(piece));
+    const mark = after.detail!.bars.find((bar) => bar.family === "tie")!.mark;
+    const changed = schematicStrokes(after, mark);
+    expect(changed).not.toEqual(schematicStrokes(before, mark));
+    expect(changed.filter((e) => e.type === "arc")).toHaveLength(3);
+    expect(drawingSvg(after)).toContain("Ponta reta 19,0 cm");
+    expect(schematicCells(after)).toHaveLength(after.detail!.bars.length);
+  });
+
+  it("mantém a coluna e as formas vetoriais no SVG, no DXF e no PDF em peça larga", async () => {
+    const project = exampleProject();
+    const piece = newPiece(1);
+    Object.assign(piece.geometry, {
+      width: 6000,
+      length: 6000,
+      columnWidth: 6000,
+      height: 2400,
+      tipHeight: 2000,
+      loadOffset: 1200,
+    });
+    piece.detailing.supportHookProjection = 1000;
+    const drawing = pieceDrawing(project, buildDetail(piece));
+    expect(drawing.width).toBeLessThan(maxPdfPageSide);
+    const cell = schematicCells(drawing)[0];
+    const tie = schematicStrokes(drawing, "N1");
+    const [left, right] = pathExtent(
+      { segments: tie, length: 0, valid: true },
+      "x",
+    );
+    expect(left).toBeGreaterThan(cell.left + 3);
+    expect(right).toBeLessThan(cell.right - 3);
+    const svg = drawingSvg(drawing);
+    const dxf = drawingDxf(drawing);
+    expect(svg).toContain(schematicHeading);
+    expect(svg).toContain('data-schematic-bar="N1"');
+    expect(dxf).toContain("Desenho esquem\\U+00E1tico da armadura");
+    expect(dxf).toContain("LWPOLYLINE");
+    expect(svg + dxf).not.toMatch(/NaN|Infinity/);
+    const pdf = Buffer.from(await drawingPdf([drawing])).toString("latin1");
+    const streams = Array.from(
+      pdf.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g),
+      ([, data]) => {
+        try {
+          return inflateSync(Buffer.from(data, "latin1")).toString("latin1");
+        } catch {
+          return "";
+        }
+      },
+    ).join("\n");
+    expect(streams).toContain(schematicHeading);
+    expect(streams).toMatch(/ c\n/);
+    expect(streams).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("distribui 204 posições em blocos completos que cabem na mesma página PDF", async () => {
+    const piece = newPiece(1);
+    Object.assign(piece.geometry, {
+      width: 500,
+      length: 6000,
+      columnWidth: 5800,
+      height: 850,
+      tipHeight: 250,
+      loadOffset: 4200,
+    });
+    Object.assign(piece.rebar, {
+      stirrupCount: 100,
+      stirrupBranches: 4,
+      stirrupDiameter: 6.3,
+      stitchCount: 1,
+      stitchDiameter: 6.3,
+    });
+    piece.design.lowerStitchCount = 0;
+    const detail = buildDetail(piece);
+    const drawing = pieceDrawing(exampleProject(), detail);
+    const cells = schematicCells(drawing);
+    expect(detail.bars).toHaveLength(204);
+    expect(cells).toHaveLength(detail.bars.length);
+    expect(new Set(cells.map((cell) => cell.left)).size).toBe(2);
+    expect(Math.max(drawing.width, drawing.height)).toBeLessThan(
+      maxPdfPageSide,
+    );
+    for (const [i, bar] of detail.bars.entries()) {
+      const path = {
+        segments: schematicStrokes(drawing, bar.mark),
+        length: 0,
+        valid: true,
+      };
+      expect(path.segments.length).toBeGreaterThan(0);
+      const [left, right] = pathExtent(path, "x");
+      const [top, bottom] = pathExtent(path, "y");
+      const cell = cells[i];
+      expect(left).toBeGreaterThan(cell.left + 3);
+      expect(right).toBeLessThan(cell.right - 3);
+      expect(top).toBeGreaterThan(cell.top + 3);
+      expect(bottom).toBeLessThan(cell.bottom - 3);
+    }
+    const pdf = await drawingPdf([drawing]);
+    expect(Buffer.from(pdf.subarray(0, 5)).toString()).toBe("%PDF-");
+  });
+});
 
 describe("Armaduras em escala geométrica (#69)", () => {
   it.each([10, 20])(

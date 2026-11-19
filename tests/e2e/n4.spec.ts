@@ -96,7 +96,21 @@ test("o eixo frontal e o quadro de N4 acompanham o cobrimento da peça padrão",
   await expect(
     sheet.locator('line.detail-ARMADURAS[x1="67.1"][x2="67.1"]').first(),
   ).toBeAttached();
-  await expect(sheet).toContainText("C=48,4");
+  const positionX = await sheet
+    .locator("text")
+    .filter({ hasText: /^Pos\.$/ })
+    .getAttribute("x");
+  const rowY = await sheet
+    .locator(`text[x="${positionX}"]`)
+    .filter({ hasText: /^N4$/ })
+    .getAttribute("y");
+  const lengthX = await sheet
+    .locator("text")
+    .filter({ hasText: /^C unit cm$/ })
+    .getAttribute("x");
+  await expect(sheet.locator(`text[x="${lengthX}"][y="${rowY}"]`)).toHaveText(
+    "48,4",
+  );
 });
 
 test("migra, edita ramos/bitola, desfaz/refaz e salva por peça", async ({

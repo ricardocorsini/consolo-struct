@@ -1,6 +1,6 @@
 # Detalhamento de consolos - versão 0.5
 
-O módulo produz desenhos locais soltos: elevação de armaduras, planta dos tirantes, cortes A-A e B-B, formas de dobramento, relação de barras e resumo de aço. Os arquivos não recebem folha A1 nem formato obrigatório. Cada peça conserva sua identificação, quantidade, revisão e notas.
+O módulo produz elevação de armaduras, planta dos tirantes, cortes A-A e B-B, relação de aço com formas de dobramento e resumo de aço. Cada peça conserva sua identificação, quantidade, revisão e notas. A prancha tem dimensões livres.
 
 ## Usar
 
@@ -14,9 +14,9 @@ O módulo produz desenhos locais soltos: elevação de armaduras, planta dos tir
 
 - O modelo de cálculo continua em mm/N/MPa. A saída de detalhamento converte as coordenadas para **cm**. O DXF declara `$INSUNITS=5`, sem depender de conversão manual no CAD.
 - As bitolas permanecem em **mm**. Dimensões de formas, posições, mandris, cobrimentos e comprimentos de corte são em **cm**.
-- O DXF contém polilinhas editáveis com largura física para as retas e dobras de armadura. O campo 43 de `LWPOLYLINE` representa a bitola em cm. O campo 42 conserva o arco no eixo, com sentido ajustado ao Y crescente do CAD. Os cortes circulares usam `CIRCLE` com raio físico. O desenho usa as camadas FORMAS, ARMADURAS, COTAS, TEXTOS, EIXOS e ALERTAS. As cotas são linhas e textos explícitos. [Referência do formato DXF](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-748FC305-F3F2-4F74-825A-61F04D757A50.htm).
-- Na tela, no SVG e no PDF, a espessura do traço corresponde à bitola na escala do desenho. Os cortes circulares usam preenchimento sem borda adicional. As extremidades cortadas da barra ficam no término do eixo. Quando uma vista projeta de perfil uma dobra ou um trecho perpendicular, o disco físico pode aparecer além da extremidade da projeção do eixo. [Comparativo de elevação e seção A–A](images/armaduras-escala-real.png).
-- A geometria e as formas estão a 1:1 em cm no DXF. O PDF usa uma página de dimensão livre por tipo e uma página adicional de resumo quando todos são gerados. Sua escala nominal é 1:10 ao imprimir em tamanho real, sem “ajustar à página”.
+- O DXF contém polilinhas editáveis para as retas e dobras de armadura. O campo 43 de `LWPOLYLINE` representa a bitola em cm nas vistas e a espessura de traço ajustada nos esquemas da tabela. O campo 42 conserva o arco no eixo, com sentido ajustado ao Y crescente do CAD. Os cortes circulares usam `CIRCLE` com raio físico. O desenho usa as camadas FORMAS, ARMADURAS, COTAS, TEXTOS, EIXOS e ALERTAS. As cotas são linhas e textos explícitos. [Referência do formato DXF](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-748FC305-F3F2-4F74-825A-61F04D757A50.htm).
+- Na tela, no SVG e no PDF, a espessura do traço nas vistas corresponde à bitola na escala do desenho. Os cortes circulares usam preenchimento sem borda adicional. As extremidades cortadas da barra ficam no término do eixo. Quando uma vista projeta de perfil uma dobra ou um trecho perpendicular, o disco físico pode aparecer além da extremidade da projeção do eixo. [Comparativo de elevação e seção A–A](images/armaduras-escala-real.png).
+- As vistas estão a 1:1 em cm no DXF. O PDF usa uma página de dimensão livre por tipo e uma página adicional de resumo quando todos são gerados. A escala nominal das vistas é 1:10 ao imprimir a 100%.
 - Os cortes identificam sua coordenada x. A–A atravessa o primeiro estribo vertical e B–B atravessa o centro do apoio. As costuras horizontais aparecem nos cruzamentos com o plano ou como segmentos quando pertencem ao plano. O corte usa o perímetro de N2/N2I conforme a convenção de representação dos ganchos.
 - As barras do pilar não são inferidas: o suporte aparece como fragmento, com indicação de interrupção. Sua compatibilização pertence ao projeto de conjunto.
 
@@ -75,7 +75,11 @@ O quadro e o CSV de detalhamento usam quantidade, comprimento e massa armazenado
 
 O CSV geral e o PDF da memória exibem o comprimento desenvolvido de N4 em centímetros com três casas decimais. O valor de corte C e a massa usam o arredondamento de fabricação adotado na relação do aço.
 
-Cada linha contém posição, aço, bitola, barras por peça, barras totais, C unitário, C total e massa total. O resumo agrupa por classe de aço e bitola. A quantidade do tipo multiplica os quantitativos uma única vez. O resumo geral soma todos os tipos; a identificação completa de uma posição é, por exemplo, **C01/N1**.
+Cada linha contém posição, aço, bitola, barras por peça, barras totais, C unitário, C total, massa total e o **Desenho esquemático da armadura**. O resumo agrupa por classe de aço e bitola. A quantidade do tipo multiplica os quantitativos uma única vez. O resumo geral soma todos os tipos. A identificação completa de uma posição é, por exemplo, **C01/N1**.
+
+O esquema traça o eixo de cada barra com a mesma escala nos dois sentidos, ajustada ao espaço da célula. Use as medidas reais indicadas em cm, com os trechos retos na ordem do percurso, os ângulos das dobras e o diâmetro interno `D`. Nas alças em U, a célula mostra a planta e, quando há gancho no suporte, sua vista lateral com a projeção e a ponta reta. Os esquemas acompanham a prancha em SVG, DXF e PDF. O CSV traz os quantitativos e a observação em texto. [Comparativo de uma prancha antes e depois](images/relacao-aco-desenhos.png).
+
+Quando a relação tem muitas posições, as linhas são distribuídas em blocos lado a lado, com cabeçalhos repetidos. Cada bloco permanece na mesma prancha para atender ao limite de altura da página PDF.
 
 A massa usa área circular e densidade de 7 850 kg/m³, com o comprimento de corte adotado. Não inclui perdas de oficina, reserva de compra, emendas adicionais ou barras do suporte não cadastradas. O CSV usa separador ponto e vírgula, decimal com vírgula e proteção contra fórmulas em campos editáveis.
 

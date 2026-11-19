@@ -101,6 +101,44 @@ test("prancha e SVG exportado mostram N1 com a bitola física", async ({
   await canvas.screenshot({ path: info.outputPath("prancha-escala-real.png") });
 });
 
+test("Relação do Aço integra a alça e o gancho e atualiza a ponta reta", async ({
+  page,
+}, info) => {
+  const canvas = page.locator(".detail-canvas");
+  const heading = "Desenho esquemático da armadura";
+  await expect(canvas).toContainText(heading);
+  await expect(canvas).not.toContainText("FORMAS DE DOBRAMENTO E POSIÇÕES");
+  await page.getByLabel("Ancoragem do detalhe").selectOption("hook");
+  const projection = page.getByLabel("Projeção do gancho no suporte");
+  await projection.fill("60");
+  await projection.press("Enter");
+  await expect(canvas).toContainText("Vista lateral");
+  const hooks = canvas.locator('path[data-schematic-bar="N1-1"]');
+  await expect(hooks).toHaveCount(3);
+  const hook = hooks.last();
+  const oldCurve = await hook.getAttribute("d");
+  const tail = page.getByLabel("Ponta reta do gancho");
+  await tail.fill("19");
+  await tail.press("Enter");
+  await expect(canvas).toContainText("Ponta reta 19,0 cm");
+  await expect(hook).not.toHaveAttribute("d", oldCurve!);
+  await canvas.screenshot({
+    path: info.outputPath("relacao-desenhos-claro.png"),
+  });
+  await page.getByRole("button", { name: "Alternar tema" }).click();
+  await expect(page.locator(".detail-viewport")).toHaveClass(/dark/);
+  await expect(hook).toHaveCSS("stroke", "rgb(119, 173, 255)");
+  await canvas.screenshot({
+    path: info.outputPath("relacao-desenhos-escuro.png"),
+  });
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Detalhes SVG", exact: true }).click();
+  const svg = await readFile((await (await download).path())!, "utf8");
+  expect(svg).toContain(heading);
+  expect(svg).toContain('data-schematic-bar="N1-1"');
+  expect(svg).toContain("Ponta reta 19,0 cm");
+});
+
 test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", async ({
   page,
 }) => {
@@ -117,6 +155,7 @@ test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", asyn
   expect(dxf).not.toContain("C02");
   expect(dxf).toContain("AcDbPolyline");
   expect(dxf).toContain("\n42\n");
+  expect(dxf).toContain("Desenho esquem\\U+00E1tico da armadura");
   await page.getByLabel("Escopo dos detalhes").selectOption("all");
   await page.getByLabel("Peça do detalhamento").selectOption("double-tie");
   await expect(canvas).toContainText("C02");
@@ -136,6 +175,7 @@ test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", asyn
   expect(csv).toContain('"C01"');
   expect(csv).toContain('"C02"');
   expect(csv).toContain("C unitário (cm)");
+  expect(csv).not.toContain("Desenho esquemático");
   event = page.waitForEvent("download");
   await page.getByRole("button", { name: "Detalhes PDF", exact: true }).click();
   download = await event;

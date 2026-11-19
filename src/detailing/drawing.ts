@@ -1,11 +1,6 @@
 import type { Project } from "../domain/model";
 import { number } from "../domain/model";
-import {
-  mandrelDiameter,
-  samplePath,
-  type BarPath,
-  type Point,
-} from "./geometry";
+import type { BarPath, Point, Segment } from "./geometry";
 import { type Bar, type Detail } from "./model";
 import { reactionGeometry, stirrupLayout } from "../domain/theory";
 import { elevationTieBars, sectionBars } from "./projection";
@@ -28,24 +23,12 @@ export type Layer =
   | "EIXOS"
   | "ALERTAS";
 export type Entity =
-  | {
-      type: "line";
-      a: Point;
-      b: Point;
+  | (Segment & {
       layer: Layer;
       dash?: boolean;
       thickness?: number;
-    }
-  | {
-      type: "arc";
-      center: Point;
-      radius: number;
-      start: number;
-      sweep: number;
-      layer: Layer;
-      dash?: boolean;
-      thickness?: number;
-    }
+      schematic?: string;
+    })
   | {
       type: "circle";
       center: Point;
@@ -69,10 +52,9 @@ export type Drawing = {
   name: string;
   detail?: Detail;
 };
+export const maxPdfPageSide = 4500;
 export const cm = (mm: number, digits = 1) => number(mm / 10, digits);
 export const grade = steelLabel;
-export const barLabel = (b: Bar) =>
-  `${b.quantity} ${b.mark} Ø${number(b.diameter, 1)} C=${cm(b.cutLength)}`;
 export const colors: Record<Layer, string> = {
   FORMAS: "#303843",
   ARMADURAS: "#174c9b",
@@ -188,33 +170,44 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     diameter: number,
     x: number,
     y: number,
-    dash = false,
-    endCaps: Point[] = [],
+    {
+      dash = false,
+      endCaps = [],
+      scale = 1,
+      schematic,
+    }: {
+      dash?: boolean;
+      endCaps?: Point[];
+      scale?: number;
+      schematic?: string;
+    } = {},
   ) => {
-    const thickness = diameter / 10;
-    for (const seg of path.segments) {
-      if (seg.type === "line")
-        line(
-          x + seg.a.x / 10,
-          y + seg.a.y / 10,
-          x + seg.b.x / 10,
-          y + seg.b.y / 10,
-          "ARMADURAS",
-          dash,
-          thickness,
-        );
-      else
-        entities.push({
-          ...seg,
-          center: { x: x + seg.center.x / 10, y: y + seg.center.y / 10 },
-          radius: seg.radius / 10,
-          layer: "ARMADURAS",
-          thickness,
-          ...(dash ? { dash } : {}),
-        });
+    const move = (point: Point) => ({
+      x: x + (point.x * scale) / 10,
+      y: y + (point.y * scale) / 10,
+    });
+    const width = (diameter * scale) / 10;
+    const style = {
+      layer: "ARMADURAS" as const,
+      thickness: schematic ? Math.min(0.55, Math.max(0.22, width)) : width,
+      ...(schematic ? { schematic } : {}),
+      ...(dash ? { dash } : {}),
+    };
+    for (const seg of path.segments)
+      entities.push(
+        seg.type === "line"
+          ? { ...seg, a: move(seg.a), b: move(seg.b), ...style }
+          : {
+              ...seg,
+              center: move(seg.center),
+              radius: (seg.radius * scale) / 10,
+              ...style,
+            },
+      );
+    for (const cap of endCaps) {
+      const center = move(cap);
+      barCircle(center.x, center.y, diameter * scale, true);
     }
-    for (const cap of endCaps)
-      barCircle(x + cap.x / 10, y + cap.y / 10, diameter, true);
   };
   const dim = (
     x: number,
@@ -301,9 +294,48 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       (d.bars.some((bar) => bar.family === "pin") ? s.pinProjection / 10 : 0),
     sectionX = x + L + 46;
   const viewRight = sectionX + B + 50;
-  const tableX = viewRight + 10,
-    tableW = 205;
-  const width = Math.max(540, tableX + tableW + 12);
+  const schematicWidth = 150;
+  const steelColumns = [15, 16, 19, 20, 22, 35, 47, 31, schematicWidth];
+  const tableX = viewRight + 10;
+  const tableW = steelColumns.reduce((sum, column) => sum + column, 0);
+  const tableGap = 12;
+  const steelHeader = [
+    "Pos.",
+    "Aço",
+    "Ø mm",
+    "Q/pç",
+    "Q total",
+    "C unit cm",
+    "C total cm",
+    "kg total",
+    "Desenho esquemático da armadura",
+  ];
+  const schedules: TableCell[][][] = [[steelHeader]];
+  // Reserve space below each schedule for totals and detailing notes.
+  const scheduleLimit = maxPdfPageSide - 300;
+  const headerHeight = tableRowHeight(steelHeader);
+  let scheduleHeight = headerHeight;
+  for (const bar of d.bars) {
+    const row = [
+      bar.mark,
+      String(bar.grade / 10),
+      number(bar.diameter, 1),
+      String(bar.quantity),
+      String(bar.totalQuantity),
+      cm(bar.cutLength),
+      cm(bar.totalLength),
+      number(bar.totalMass, 2),
+      schematicCell(bar),
+    ];
+    const height = tableRowHeight(row);
+    if (scheduleHeight + height > scheduleLimit) {
+      schedules.push([steelHeader]);
+      scheduleHeight = headerHeight;
+    }
+    schedules.at(-1)!.push(row);
+    scheduleHeight += height;
+  }
+  const width = Math.max(540, tableX + schedules.length * (tableW + tableGap));
   const countBars = (family: Bar["family"]) =>
     d.bars
       .filter((bar) => bar.family === family)
@@ -413,12 +445,15 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
           bar.diameter,
         );
       else
-        barPath(shape.path, bar.diameter, ox, oy, dashed(bar), shape.endCaps);
+        barPath(shape.path, bar.diameter, ox, oy, {
+          dash: dashed(bar),
+          endCaps: shape.endCaps,
+        });
     }
   };
   const projectedTies = elevationTieBars(p, d);
   for (const { path, bar, endCaps } of projectedTies)
-    barPath(path, bar.diameter, x, y, false, endCaps);
+    barPath(path, bar.diameter, x, y, { endCaps });
   const elevation = projectElevation(d);
   drawShapes(
     elevation.filter(({ bar }) => bar.family !== "tie"),
@@ -722,51 +757,160 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       : `Face inferior com inclinação ${anglesText}.`,
     2.1,
   );
-  // Steel schedule. Every position references the very same bar centre-line model as the sketches.
+  type GraphicCell = {
+    height: number;
+    draw: (x: number, y: number, height: number) => void;
+  };
+  type TableCell = string | GraphicCell;
+  function schematicCell(bar: Bar): GraphicCell {
+    const pad = 3;
+    const gap = 4;
+    const plotWidth = 66;
+    const labelSize = 2.05;
+    const linePitch = 2.75;
+    const labelWidth = schematicWidth - plotWidth - gap - 2 * pad;
+    const hook = bar.instances[0]?.parts.find(
+      (part) => part.role === "hook",
+    )?.path;
+    const shapes = [bar.path, ...(hook ? [hook] : [])].map((path) => {
+      const [left, right] = pathExtent(path, "x");
+      const [top, bottom] = pathExtent(path, "y");
+      return { path, left, top, width: right - left, height: bottom - top };
+    });
+    const between = (shapes.length - 1) * gap;
+    const pathsWidth = shapes.reduce((sum, shape) => sum + shape.width, 0) / 10;
+    const pathsHeight = Math.max(...shapes.map((shape) => shape.height)) / 10;
+    // Leave room for the stroke on both sides of the fitted centre lines.
+    const scale = Math.min(
+      1,
+      (plotWidth - between - 1) / Math.max(pathsWidth, 1),
+      15 / Math.max(pathsHeight, 1),
+    );
+    const body = shapes[0];
+    const dimensions = [body.width, body.height]
+      .filter((value) => value > 1e-6)
+      .map((value) => cm(value));
+    const straights = bar.path.segments
+      .flatMap((seg) =>
+        seg.type === "line"
+          ? [Math.hypot(seg.b.x - seg.a.x, seg.b.y - seg.a.y)]
+          : [],
+      )
+      .filter((length) => length > 1e-6);
+    const turns = [
+      ...new Set(
+        bar.path.segments.flatMap((seg) =>
+          seg.type === "arc"
+            ? [`${number((Math.abs(seg.sweep) * 180) / Math.PI, 1)}°`]
+            : [],
+        ),
+      ),
+    ];
+    const labels = [
+      `${bar.description}${bar.mandrel ? ` · D = ${cm(bar.mandrel)} cm` : ""}`,
+    ];
+    if (dimensions.length > 1)
+      labels.push(`Entre eixos ${dimensions.join(" × ")} cm`);
+    if (straights.length)
+      labels.push(
+        `Retas (cm) ${straights.map((length) => cm(length)).join(" / ")}`,
+      );
+    if (turns.length) labels.push(`Dobras ${turns.join(" / ")}`);
+    if (bar.family === "tie" && bar.hookTail) {
+      labels.push(
+        "Gancho de 90° no suporte",
+        `Ponta reta ${cm(bar.hookTail)} cm`,
+      );
+      const rearArc = hook?.segments.find((seg) => seg.type === "arc");
+      const support = bar.anchorage.find((anchor) => anchor.end === "suporte");
+      if (rearArc && support?.projection !== undefined)
+        labels.push(
+          `Vista lateral · D = ${cm(2 * rearArc.radius - bar.diameter)} cm`,
+          `Projeção no suporte ${cm(support.projection)} cm · total ${cm(bar.height)} cm`,
+        );
+    }
+    labels.push(bar.note);
+    if (bar.family === "stirrup" || bar.family === "stirrupInner")
+      labels.push(
+        `Eixos x da face (cm) ${bar.locations.map((v) => cm(v.x)).join(" / ")}`,
+      );
+    if (bar.family === "stitch" || bar.family === "lower")
+      labels.push(
+        `Eixos z do topo (cm) ${bar.locations.map((v) => cm(v.z)).join(" / ")}`,
+      );
+    const lines = labels.flatMap((label) =>
+      wrap(label, Math.floor(labelWidth / labelSize)),
+    );
+    const labelHeight = lines.length * linePitch;
+    return {
+      height: Math.max(
+        14,
+        2 * pad + Math.max(pathsHeight * scale + 1, labelHeight),
+      ),
+      draw: (xx, yy, height) => {
+        let axisX = xx + pad + (plotWidth - pathsWidth * scale - between) / 2;
+        for (const shape of shapes) {
+          barPath(
+            shape.path,
+            bar.diameter,
+            axisX - (shape.left * scale) / 10,
+            yy +
+              (height - (shape.height * scale) / 10) / 2 -
+              (shape.top * scale) / 10,
+            { scale, schematic: bar.mark },
+          );
+          axisX += (shape.width * scale) / 10 + gap;
+        }
+        const labelY = yy + (height - labelHeight) / 2;
+        for (const [i, label] of lines.entries())
+          text(
+            xx + pad + plotWidth + gap,
+            labelY + i * linePitch + labelSize,
+            label,
+            labelSize,
+          );
+      },
+    };
+  }
+
+  function tableRowHeight(row: TableCell[]) {
+    return Math.max(
+      5.3,
+      ...row.map((cell) => (typeof cell === "string" ? 0 : cell.height)),
+    );
+  }
   const table = (
     tx: number,
     ty: number,
     widths: number[],
-    rows: string[][],
-    header = true,
+    rows: TableCell[][],
   ) => {
-    const rowH = 5.3;
     let yy = ty;
     for (const [index, row] of rows.entries()) {
+      const rowH = tableRowHeight(row);
       let xx = tx;
       row.forEach((cell, j) => {
         rect(xx, yy, widths[j], rowH, "COTAS");
-        text(xx + 1.5, yy + 3.6, cell, index === 0 && header ? 2.05 : 2.1);
+        if (typeof cell === "string")
+          text(
+            xx + 1.5,
+            yy + (rowH - 5.3) / 2 + 3.6,
+            cell,
+            index === 0 ? 2.05 : 2.1,
+          );
+        else cell.draw(xx, yy, rowH);
         xx += widths[j];
       });
       yy += rowH;
     }
     return yy;
   };
-  text(tableX, 45, "RELAÇÃO DO AÇO - BARRAS FÍSICAS", 2.9);
-  const rows = [
-    [
-      "Pos.",
-      "Aço",
-      "Ø mm",
-      "Q/pç",
-      "Q total",
-      "C unit cm",
-      "C total cm",
-      "kg total",
-    ],
-    ...d.bars.map((b) => [
-      b.mark,
-      String(b.grade / 10),
-      number(b.diameter, 1),
-      String(b.quantity),
-      String(b.totalQuantity),
-      cm(b.cutLength),
-      cm(b.totalLength),
-      number(b.totalMass, 2),
-    ]),
-  ];
-  let tableBottom = table(tableX, 49, [15, 16, 19, 20, 22, 35, 47, 31], rows);
+  let tableBottom = 49;
+  for (const [index, rows] of schedules.entries()) {
+    const xx = tableX + index * (tableW + tableGap);
+    text(xx, 45, "RELAÇÃO DO AÇO - BARRAS FÍSICAS", 2.9);
+    tableBottom = Math.max(tableBottom, table(xx, 49, steelColumns, rows));
+  }
   tableBottom += 8;
   text(tableX, tableBottom, "RESUMO DO AÇO - QUANTIDADE TOTAL DO TIPO", 2.6);
   tableBottom = table(
@@ -803,191 +947,15 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     "Massa teórica; sem perdas de corte, emendas ou acréscimo de compra.",
     2.05,
   );
-  // Bar drawings laid out freely. All coordinates remain 1:1 in cm; no A-series sheet.
   let bottom = Math.max(infoY + 43, tableBottom + 30);
-  text(10, bottom, "FORMAS DE DOBRAMENTO E POSIÇÕES", 3);
-  text(
-    10,
-    bottom + 6,
-    "Cotas no eixo da barra (cm); D = diâmetro interno do mandril (cm). C = comprimento de corte desenvolvido, arredondado para cima a 0,1 cm.",
-    2.2,
-  );
-  text(
-    10,
-    bottom + 11,
-    "Ganchos de estribos: 135° voltados para dentro; pontas retas ≥5Ø e ≥5 cm. Nas alças, Q/pç conta alças, cada uma com 2 ramos resistentes.",
-    2.2,
-  );
-  bottom += 20;
-  const cards = d.bars.map((b) => {
-    const pts = samplePath(b.path),
-      xs = pts.map((v) => v.x / 10),
-      ys = pts.map((v) => v.y / 10);
-    const minX = Math.min(...xs),
-      maxX = Math.max(...xs),
-      minY = Math.min(...ys),
-      maxY = Math.max(...ys);
-    const hook = b.instances[0]?.parts.find(
-      (part) => part.role === "hook",
-    )?.path;
-    const [hookLeft, hookRight] = hook ? pathExtent(hook, "x") : [0, 0];
-    const [hookTop, hookBottom] = hook ? pathExtent(hook, "y") : [0, 0];
-    return {
-      b,
-      minX,
-      minY,
-      maxY,
-      hook,
-      hookLeft,
-      hookRight,
-      hookTop,
-      w: Math.max(maxX - minX + 32, 140),
-      h: Math.max(
-        maxY -
-          minY +
-          43 +
-          (b.hookTail ? Math.max(24, (hookBottom - hookTop) / 10 + 9) : 0),
-        72,
-      ),
-    };
-  });
-  let cardX = 10,
-    cardY = bottom,
-    rowH = 0;
-  for (const card of cards) {
-    if (cardX + card.w > width - 10 && cardX > 10) {
-      cardY += rowH + 8;
-      cardX = 10;
-      rowH = 0;
-    }
-    const { b } = card,
-      bx = cardX + 12 - card.minX,
-      by = cardY + 21 - card.minY;
-    text(cardX, cardY, barLabel(b), 2.5);
-    text(
-      cardX,
-      cardY + 5,
-      `${b.description} · ${grade(b.grade)}${b.mandrel ? ` · D=${cm(b.mandrel)}` : ""}`,
-      2.15,
-    );
-    barPath(b.path, b.diameter, bx, by);
-    const pts = samplePath(b.path),
-      maxX = Math.max(...pts.map((v) => v.x)),
-      maxY = Math.max(...pts.map((v) => v.y));
-    if (b.width > 0)
-      dim(
-        bx + card.minX,
-        by + card.minY,
-        bx + maxX / 10,
-        by + card.minY,
-        -5,
-        cm(maxX - card.minX * 10),
-      );
-    if (maxY / 10 - card.minY > 2)
-      dim(
-        bx + maxX / 10,
-        by + card.minY,
-        bx + maxX / 10,
-        by + maxY / 10,
-        6,
-        cm(maxY - card.minY * 10),
-      );
-    if (beam && (b.family === "tie" || b.family === "positive"))
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Trechos retos: ${b.path.segments
-          .filter((v) => v.type === "line")
-          .map((v) => cm(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y)))
-          .join(" / ")} cm; dobras nas duas extremidades.`,
-        2.05,
-      );
-    else if (b.family === "tie" && b.width > 0) {
-      const hookY = cardY + 33 + card.maxY - card.minY;
-      text(
-        cardX,
-        card.hook ? hookY - 3 : cardY + card.h - 16,
-        `Projeção total=${cm(b.height)}; largura entre eixos=${cm(b.width)} cm`,
-        2.05,
-      );
-      if (card.hook) {
-        const hx = cardX + 8;
-        barPath(
-          card.hook,
-          b.diameter,
-          hx - card.hookLeft / 10,
-          hookY - card.hookTop / 10,
-        );
-        const labelX = hx + (card.hookRight - card.hookLeft) / 10 + 7;
-        text(
-          labelX,
-          hookY + 4,
-          `Gancho 90° em cada extremidade do suporte: ponta=${cm(b.hookTail)} cm`,
-          2.05,
-        );
-        text(
-          labelX,
-          hookY + 9,
-          `Projeção no suporte ${cm(b.anchorage.find((anchor) => anchor.end === "suporte")?.projection ?? 0)} cm · D=${cm(mandrelDiameter(b.diameter, p.materials.fyk))} cm.`,
-          2.05,
-        );
-        text(
-          labelX,
-          hookY + 14,
-          "Vista lateral do gancho fora do plano da alça.",
-          2.05,
-        );
-      }
-    } else if (b.family === "tie") {
-      text(
-        cardX,
-        cardY + card.h - 16,
-        `Projeção longitudinal = ${cm(b.height)} cm`,
-        2.05,
-      );
-      if (b.hookTail)
-        text(
-          cardX,
-          cardY + card.h - 5,
-          `Gancho de 90° no suporte · ponta reta = ${cm(b.hookTail)} cm`,
-          2.05,
-        );
-    }
-    text(cardX, cardY + card.h - 10, b.note.slice(0, 115), 2.05);
-    if (b.family === "stirrup" || b.family === "stirrupInner")
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Eixo x=${b.locations.map((v) => cm(v.x)).join(" / ")} cm a partir da face do suporte.`,
-        2.05,
-      );
-    if (b.family === "constructive")
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Trechos retos: ${b.path.segments
-          .filter((v) => v.type === "line")
-          .map((v) => cm(Math.hypot(v.b.x - v.a.x, v.b.y - v.a.y)))
-          .join(" / ")} cm; ${cut ? "dobras" : "dobra"} ${anglesText}.`,
-        2.05,
-      );
-    if (b.family === "stitch" || b.family === "lower")
-      text(
-        cardX,
-        cardY + card.h - 5,
-        `Eixo z=${b.locations.map((v) => cm(v.z)).join(" / ")} cm abaixo do topo.`,
-        2.05,
-      );
-    cardX += card.w + 12;
-    rowH = Math.max(rowH, card.h);
-  }
-  bottom = cardY + rowH + 15;
   text(10, bottom, "NOTAS DE DETALHAMENTO E CONFERÊNCIA", 2.8);
   const safety = materialSafety(q);
   const notes = [
     `N3: ${outerCount} estribo(s) externo(s); N3G: ${innerCount} estribo(s) interno(s). N4: ${constructiveCount} barras construtivas Ø${number(r.constructiveDiameter ?? 8, 1)} mm, sem contribuição resistente. N5 fendilhamento e N6 suspensão exigem detalhamento próprio.`,
     `Responsável técnico: ${project.author || "não informado"}. Cliente: ${project.client || "não informado"}. Revisão ${s.revision || "R00"}.`,
-    "Desenhos soltos: geometria e formas em centímetros; diâmetros das barras em milímetros. CAD em escala real 1:1; PDF em escala nominal 1:10 ao imprimir a 100%.",
+    "Vistas em centímetros e bitolas em milímetros. Escala das vistas 1:1 no CAD e 1:10 no PDF impresso a 100%.",
+    "Na Relação do Aço, as formas são proporcionais. Cotas no eixo e diâmetro interno D em cm. C é o comprimento de corte arredondado para cima a 0,1 cm.",
+    "Ganchos dos estribos a 135° para dentro, com pontas retas ≥5Ø e ≥5 cm. Q/pç conta alças quando indicadas. Cada alça fornece dois ramos resistentes.",
     "Mandris e ganchos: NBR 6118:2026, 9.4.2.3, tabelas 9.1 e 9.2 e 9.4.6.1. Estribos representados pela projeção nominal com fechamento de ganchos fora do plano.",
     "Comprimentos C somam trechos retos e arcos no eixo; não se obtêm por soma de cotas externas. O excedente de arredondamento fica na ponta reta. Densidade do aço: 7 850 kg/m³.",
     "Não cortar ou dobrar barras a partir da escala da tela. Conferir as cotas, o ajuste das armaduras no suporte e as tolerâncias do fabricante.",
