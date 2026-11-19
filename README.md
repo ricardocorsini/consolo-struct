@@ -82,7 +82,7 @@ Abra o endereço informado pelo Vite. Após gerar `dist/`, também é possível 
 
 ## Escopo de engenharia
 
-O **motor 0.5.0**, política **LC-ELU-2026.2**, trata o ELU estático local de consolos simples de concreto armado. Os critérios implementados se apoiam nas NBR 6118:2026 e 9062:2017 e nos modelos documentados de Araújo e El Debs. A versão do aplicativo e a do motor são identificações independentes.
+O **motor 0.6.0**, política **LC-ELU-2026.2**, trata o ELU estático local de consolos simples de concreto armado. Os critérios implementados se apoiam nas NBR 6118:2026 e 9062:2017 e nos modelos documentados de Araújo e El Debs. A versão do aplicativo e a do motor são identificações independentes.
 
 Para `1 < a/d ≤ 2`, o modo automático calcula a peça como viga em balanço (flexão simples e cisalhamento pelo Modelo I, com costura até 600 mm de altura e pele a conferir acima disso), sem ELS, fissuração ou flecha.
 

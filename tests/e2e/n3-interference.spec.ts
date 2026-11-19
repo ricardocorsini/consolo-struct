@@ -147,6 +147,11 @@ test("sem N1 centrais, não inventa N3G e mostra apenas as duas N4 externas", as
 }, info) => {
   const p = newPiece(1);
   p.rebar.stirrupBranches = 4;
+  // One loop (two legs) per layer: no central N1 pair. With 4 Ø20 the inner
+  // loop is now drawn (#64), so it no longer represents this case.
+  p.rebar.tieCount = 2;
+  p.design.frontAnchor = "loop";
+  p.design.supportAnchor = "straight";
   await seedPiece(page, p);
   await page
     .locator(".inspector-tabs")

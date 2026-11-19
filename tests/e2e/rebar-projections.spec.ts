@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { exampleProject, newPiece, type Piece } from "../../src/domain/model";
 import { shortFixture } from "../fixtures";
+import { calculate } from "../../src/domain/engine";
 
 async function seed(page: Page, p: Piece) {
   await page.addInitScript(
@@ -17,23 +18,26 @@ async function view(page: Page, name: string) {
     .click();
 }
 
-test("alças descartadas não reaparecem nas vistas e a pendência continua visível", async ({
+test("alças que não cabem continuam em todas as vistas, com a pendência visível (#64)", async ({
   page,
 }, info) => {
   const p = shortFixture();
   p.geometry.width = 100;
   await seed(page, p);
-  await expect(page.locator(".steel-N1 path")).toHaveCount(0);
+  await expect(page.locator(".steel-N1 path")).toHaveCount(1);
   await page.screenshot({
     path: info.outputPath("alcas-descartadas-elevacao.png"),
   });
   await view(page, "Seção A–A");
-  await expect(page.locator(".steel-N1 circle")).toHaveCount(0);
+  // Every declared leg is drawn, overlapping at the narrowest loop width.
+  await expect(page.locator(".steel-N1 circle")).toHaveCount(p.rebar.tieCount);
   await page.screenshot({
     path: info.outputPath("alcas-descartadas-secao.png"),
   });
   await view(page, "Detalhamento");
-  await expect(page.locator(".detail-issues")).toContainText("alça");
+  await expect(page.locator(".detail-issues")).toContainText(
+    "não cabem aninhadas",
+  );
 });
 
 test("seção corta as curvas de N1 e P1 e mantém d’ como referência do cálculo", async ({
@@ -86,21 +90,20 @@ test("elevação conserva o gancho de suporte e a penetração das costuras", as
 }, info) => {
   const p = shortFixture();
   p.design.supportAnchor = "hook";
+  const { values } = calculate(p);
   await seed(page, p);
   const tie = page.locator(".steel-N1 path").first();
-  const coords = (await tie.getAttribute("d"))!
-    .match(/-?\d+(?:\.\d+)?/g)!
-    .map(Number);
-  const scale = Math.min(480 / 1350, 340 / 580);
-  const ys = coords.filter((_, i) => i % 2 === 1);
-  expect(Math.max(...ys)).toBeGreaterThan(
-    ys[0] + p.detailing.supportHookTail * scale,
+  await expect(tie).toHaveAttribute("d", /A/);
+  const height = await tie.evaluate(
+    (path) => (path as SVGPathElement).getBBox().height,
   );
+  const scale = Math.min(480 / 1350, 340 / 580);
+  expect(height).toBeGreaterThan(values.anchorN1_tail * scale);
   const stitch = page.locator(".steel-N2 path").first();
   const start = Number(
     (await stitch.getAttribute("d"))!.match(/^M(-?[\d.]+)/)![1],
   );
-  expect(start).toBeCloseTo(480 - p.detailing.stitchEmbedment * scale, 8);
+  expect(start).toBeCloseTo(480 - values.anchorN2_adopted * scale, 8);
   await page.screenshot({
     path: info.outputPath("gancho-suporte-costuras.png"),
   });

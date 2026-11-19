@@ -17,7 +17,14 @@ describe("Ancoragem na busca com secundárias por candidato (#12 + #16)", () => 
     (welded, floor) => {
       for (const fixture of [
         shortFixture,
-        () => cantileverFixture({ length: 700 }),
+        () => {
+          const p = cantileverFixture({ length: 700 });
+          p.geometry.columnWidth = 1050;
+          p.design.supportAnchorLength = 1000;
+          // Neste balanço de 300 mm as alças não cabem aninhadas.
+          p.design.frontAnchor = "welded";
+          return p;
+        },
       ]) {
         const input = fixture();
         input.design.supportWeldedBar = welded;
@@ -39,6 +46,9 @@ describe("Ancoragem na busca com secundárias por candidato (#12 + #16)", () => 
         const proposal = suggestReinforcement(input);
         spy.mockRestore();
         expect(proposal.changed).toBe(true);
+        expect(
+          proposal.result.checks.find((c) => c.id === "anchorage")?.status,
+        ).toBe("pass");
         expect(evaluated.length).toBeGreaterThan(proposal.candidates);
         expect(evaluated.every(([w, f]) => w === welded && f === floor)).toBe(
           true,

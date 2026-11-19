@@ -1,4 +1,10 @@
-import { samplePath, type BarPath, type Point, type Segment } from "./geometry";
+import {
+  at,
+  samplePath,
+  type BarPath,
+  type Point,
+  type Segment,
+} from "./geometry";
 
 /** Physical placement of reinforcement in the piece, in mm.
  *
@@ -28,7 +34,7 @@ export type BarInstance = {
   pairedWith?: number;
 };
 export type ViewShape =
-  | { kind: "path"; path: BarPath }
+  | { kind: "path"; path: BarPath; endCaps?: Point[] }
   | { kind: "point"; center: Point };
 /** Section coordinates: x = y (across the width), y = z (depth). */
 export type SectionCut = {
@@ -146,6 +152,38 @@ function crossings(segments: Segment[], x: number) {
   };
 }
 
+/** A run seen edge-on can end at a bend or a perpendicular run. There the
+ * physical disk extends beyond the projected axis, unlike a cut bar end. */
+function collapsePath(
+  path: BarPath,
+  axis: "x" | "y",
+  point: (coordinate: number) => Point,
+): ViewShape {
+  const [min, max] = pathExtent(path, axis);
+  if (max - min < EPS) return { kind: "point", center: point(min) };
+  const extrema = axis === "x" ? [0, Math.PI] : [Math.PI / 2, -Math.PI / 2];
+  const endCaps = [min, max]
+    .filter((value) =>
+      path.segments.some((s) =>
+        s.type === "line"
+          ? Math.abs(s.a[axis] - value) < EPS &&
+            Math.abs(s.b[axis] - value) < EPS &&
+            Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > EPS
+          : extrema.some(
+              (angle) =>
+                Math.abs(at(s.center, s.radius, angle)[axis] - value) < EPS &&
+                onArc(s.start, s.sweep, angle),
+            ),
+      ),
+    )
+    .map(point);
+  return {
+    kind: "path",
+    path: line(point(min), point(max)),
+    ...(endCaps.length ? { endCaps } : {}),
+  };
+}
+
 /** Orthographic projection of one part.
  * elevation: (x, z) · plan: (x, y) · section: (y, z), in-plane parts only. */
 export function projectPart(
@@ -160,22 +198,12 @@ export function projectPart(
   };
   if (plane === own[view]) return { kind: "path", path };
   if (view === "section") return null;
-  // Perpendicular plane: keep the shared x axis (u for xy/xz, the station for yz).
-  if (plane === "yz") {
-    // Elevation keeps z (= v); plan keeps y (= u).
-    const [min, max] = pathExtent(path, view === "elevation" ? "y" : "x");
-    return max - min < EPS
-      ? { kind: "point", center: { x: at, y: min } }
-      : {
-          kind: "path",
-          path: line({ x: at, y: min }, { x: at, y: max }),
-        };
-  }
-  // xy in elevation or xz in plan: the run collapses to its x extent at `at`.
-  const [min, max] = pathExtent(path, "x");
-  return max - min < EPS
-    ? { kind: "point", center: { x: min, y: at } }
-    : { kind: "path", path: line({ x: min, y: at }, { x: max, y: at }) };
+  if (plane === "yz")
+    return collapsePath(path, view === "elevation" ? "y" : "x", (v) => ({
+      x: at,
+      y: v,
+    }));
+  return collapsePath(path, "x", (x) => ({ x, y: at }));
 }
 
 /** Intersection with the transverse plane x = `x`, in section coordinates. */

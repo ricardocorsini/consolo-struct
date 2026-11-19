@@ -1,5 +1,5 @@
 import type { Piece } from "../domain/model";
-import type { BarPath, Point } from "./geometry";
+import { samplePath, type BarPath, type Point } from "./geometry";
 import type { Bar, BarFamily, Detail } from "./model";
 import {
   intersectSectionX,
@@ -78,7 +78,7 @@ export function elevationTieBars(_p: Piece, detail: RebarSource) {
   const items = projectElevation(detail).filter(
     ({ bar }) => bar.family === "tie",
   );
-  const result: { bar: Bar; path: BarPath }[] = [];
+  const result: { bar: Bar; path: BarPath; endCaps?: Point[] }[] = [];
   for (const bar of detail.bars.filter((b) => b.family === "tie")) {
     const own = items.filter((item) => item.bar === bar);
     if (detail.arrangement === "beam") {
@@ -106,6 +106,7 @@ export function elevationTieBars(_p: Piece, detail: RebarSource) {
           reversed(body.shape.path),
           ...(hook?.shape.kind === "path" ? [hook.shape.path] : []),
         ]),
+        endCaps: body.shape.endCaps,
       });
     }
   }
@@ -113,16 +114,7 @@ export function elevationTieBars(_p: Piece, detail: RebarSource) {
 }
 
 export function elevationTiePaths(p: Piece, detail: Detail): Point[][] {
-  return elevationTieBars(p, detail).map(({ path }) =>
-    path.segments.flatMap((s, i) => {
-      if (s.type === "line") return i ? [s.b] : [s.a, s.b];
-      const pts = Array.from({ length: 25 }, (_, k) => ({
-        x: s.center.x + s.radius * Math.cos(s.start + (s.sweep * k) / 24),
-        y: s.center.y + s.radius * Math.sin(s.start + (s.sweep * k) / 24),
-      }));
-      return i ? pts.slice(1) : pts;
-    }),
-  );
+  return elevationTieBars(p, detail).map(({ path }) => samplePath(path, 24));
 }
 
 /** Bars cut by the transverse plane `sectionX`, grouped for the renderers.
@@ -139,16 +131,21 @@ export function sectionBars(
   });
   const ties: { v: number; depth: number; diameter: number; mark: string }[] =
     [];
-  const addTie = (bar: Bar, v: number, depth: number) => {
+  // Physical bar of each cut point: coincident bars of one position are all
+  // drawn (#64); only repeated crossings of the same bar are merged.
+  const owners: object[] = [];
+  const addTie = (bar: Bar, owner: object, v: number, depth: number) => {
     if (
       !ties.some(
-        (t) =>
-          t.mark === bar.mark &&
+        (t, i) =>
+          owners[i] === owner &&
           Math.abs(t.v - v) < 1e-6 &&
           Math.abs(t.depth - depth) < 1e-6,
       )
-    )
+    ) {
       ties.push({ v, depth, diameter: bar.diameter, mark: bar.mark });
+      owners.push(owner);
+    }
   };
   const stitches: {
     depth: number;
@@ -195,7 +192,7 @@ export function sectionBars(
       });
     switch (bar.family) {
       case "tie":
-        for (const pt of cut.points) addTie(bar, pt.x, pt.y);
+        for (const pt of cut.points) addTie(bar, instance, pt.x, pt.y);
         break;
       case "stitch":
       case "lower":

@@ -10,6 +10,7 @@ import {
   elDebsSimplified,
   reactionGeometry,
   stirrupLayout,
+  tieLayerSpacing,
   upperStitchLayout,
 } from "./theory";
 import {
@@ -20,6 +21,7 @@ import {
 import {
   coefficientText,
   materialSafety,
+  materialProperties,
   materialSafetyReference,
 } from "./materialSafety";
 import {
@@ -29,6 +31,15 @@ import {
   type GammaNDecision,
 } from "./gammaN";
 import { concreteProfile, excessConcreteLabels, pieceVolume } from "./profile";
+import { detailingLoopDiameter, loopNesting } from "./loops";
+import { basicAnchorage, requiredAnchorage } from "./anchorage";
+import { check, note } from "./verification";
+import {
+  addAnchorageChecks,
+  envelopeAnchorage,
+  prepareAnchorageGeometry,
+} from "./anchorageChecks";
+import { beamArrangementActive } from "../detailing/beam";
 import {
   bondCoefficientEta1,
   loopPinDefined,
@@ -37,7 +48,9 @@ import {
   tieSteelClassOf,
 } from "./steel";
 
-export const ENGINE_VERSION = "0.5.0";
+export { materialProperties } from "./materialSafety";
+
+export const ENGINE_VERSION = "0.6.0";
 export const POLICY = "LC-ELU-2026.2";
 export type CheckStatus = "pass" | "fail" | "review" | "na";
 export interface Check {
@@ -132,38 +145,9 @@ export function anchorageAlpha(
   if (hook && q.supportWeldedBar) return 0.5;
   return hook || q.supportWeldedBar ? 0.7 : 1;
 }
-export function materialProperties(
-  fck: number,
-  fyk: number,
-  fykTransverse = 500,
-  gammaC = 1.4,
-  gammaS = 1.15,
-) {
-  const fcd = fck / gammaC,
-    fyd = Math.min(fyk / gammaS, 435);
-  const fctm =
-    fck <= 50 ? 0.3 * fck ** (2 / 3) : 2.12 * Math.log(1 + 0.1 * (fck + 8));
-  const alphaV2 = 1 - fck / 250;
-  return {
-    fcd,
-    fyd,
-    fydLimited: Math.min(fyd, 435),
-    fywd: Math.min(fykTransverse / gammaS, 435),
-    fctm,
-    fctd: (0.7 * fctm) / gammaC,
-    fctkSup: 1.3 * fctm,
-    alphaV2,
-    etaC: fck <= 40 ? 1 : (40 / fck) ** (1 / 3),
-    lambda: fck <= 50 ? 0.8 : 0.8 - (fck - 50) / 400,
-    alphaC: fck <= 50 ? 0.85 : 0.85 * (1 - (fck - 50) / 200),
-    fcd1: 0.85 * alphaV2 * fcd,
-    fcd2: 0.6 * alphaV2 * fcd,
-    fcd3: 0.72 * alphaV2 * fcd,
-  };
-}
 export function tieLayout(p: Piece) {
   const { geometry: g, rebar: r, design: d } = p;
-  const spacingVertical = Math.max(20, r.tieDiameter, 0.5 * d.aggregate);
+  const spacingVertical = tieLayerSpacing(p);
   const first =
     g.cover + r.stirrupDiameter + r.tieDiameter / 2 + d.extraTopCover;
   const rows = Array.from({ length: d.tieLayers }, (_, i) => ({
@@ -249,58 +233,6 @@ export function strutTieModel({
     supportNodeWidth: strutWidth / cos,
     supportNodeStress: (tieForce - horizontal) / ((width * strutWidth) / cos),
     momentResidual: tieForce * z - vertical * a - horizontal * (z + e),
-  };
-}
-function check(
-  id: string,
-  label: string,
-  demand: number,
-  capacity: number,
-  unit: string,
-  formula: string,
-  reference: string,
-  detail = "",
-): Check {
-  const finite = Number.isFinite(demand) && Number.isFinite(capacity);
-  return {
-    id,
-    label,
-    demand: finite ? demand : null,
-    capacity: finite ? capacity : null,
-    utilization:
-      finite && capacity > 0
-        ? demand / capacity
-        : demand === 0 && capacity === 0
-          ? 0
-          : null,
-    status:
-      finite && demand <= capacity + Math.max(1e-8, Math.abs(capacity) * 1e-10)
-        ? "pass"
-        : "fail",
-    unit,
-    formula,
-    reference,
-    detail,
-  };
-}
-function note(
-  id: string,
-  label: string,
-  detail: string,
-  reference: string,
-  status: CheckStatus = "review",
-): Check {
-  return {
-    id,
-    label,
-    detail,
-    reference,
-    status,
-    demand: null,
-    capacity: null,
-    utilization: null,
-    unit: "",
-    formula: "",
   };
 }
 function statusOf(checks: Check[]): "pass" | "fail" | "review" {
@@ -620,23 +552,22 @@ function calculateCase(
     lateralMargin > g.cover ? 0.3 * vertical * (1 - q.bearingWidth / b) : 0;
   const splittingRequired = splittingForce / m.fywd;
   const splittingProvided = 2 * area(q.splittingCount, q.splittingDiameter);
-  const eta1 = bondCoefficientEta1(steel);
-  const fbd =
-    eta1 *
-    (q.bond === "good" ? 1 : 0.7) *
-    (r.tieDiameter < 32 ? 1 : (132 - r.tieDiameter) / 100) *
-    m.fctd;
-  const lb = Math.max((r.tieDiameter * m.fyd) / (4 * fbd), 25 * r.tieDiameter);
+  const { fbd, lb } = basicAnchorage({
+    diameter: r.tieDiameter,
+    fyd: m.fyd,
+    fctd: m.fctd,
+    eta1: bondCoefficientEta1(steel),
+    eta2: q.bond === "good" ? 1 : 0.7,
+  });
   const anchorAlpha = anchorageAlpha(q, r.tieDiameter);
   // The optional floor only replaces a ratio below 1; otherwise the original
   // expression is kept unchanged (bit-identical results with the floor off).
   const anchorFloored = q.anchorRatioFloor && tieRequired / asTie < 1;
   const anchorRatio = anchorFloored ? 1 : tieRequired / asTie;
-  const anchorRequired = Math.max(
+  const anchorRequired = requiredAnchorage(
+    r.tieDiameter,
+    lb,
     anchorFloored ? anchorAlpha * lb : (anchorAlpha * lb * tieRequired) / asTie,
-    0.3 * lb,
-    10 * r.tieDiameter,
-    100,
   );
   const confinementRequired = (0.25 * area(1, r.tieDiameter) * m.fyd) / m.fywd;
   const standardCover = { I: 25, II: 30, III: 40, IV: 50 }[q.exposure];
@@ -675,7 +606,7 @@ function calculateCase(
         "excessConcrete",
         excessConcreteLabels[profile.status],
         profile.status === "removed"
-          ? `Recorte abaixo da face inferior da biela (θ = ${number((Math.atan(profile.cutLine!.tangent) * 180) / Math.PI, 1)}°, largura ${number(profile.cutLine!.strutWidth, 1)} mm): face inferior ${profile.bottom.map((v) => `(${number(v.x, 1)}; ${number(v.depth, 1)})`).join(" → ")} mm. Área lateral removida ${number(profile.removedArea / 100, 1)} cm² (${number(profile.removedRatio * 100, 1)}%). Mantidos h na face do suporte, h₂ na ponta e a biela do modelo; as verificações usam as mesmas dimensões. Conferir a forma com o responsável técnico.`
+          ? `Recorte abaixo da face inferior da biela (θ = ${number((Math.atan(profile.cutLine!.tangent) * 180) / Math.PI, 1)}°, largura ${number(profile.cutLine!.strutWidth, 1)} mm): face inferior ${profile.bottom.map((v) => `(${number(v.x, 1)}; ${number(v.depth, 1)})`).join(" → ")} mm. Área lateral removida ${number(profile.removedArea / 100, 1)} cm² (${number(profile.removedRatio * 100, 1)}%). Preservados h na face do suporte, h₂ na ponta e a biela do modelo. As verificações de ancoragem consideram o contorno recortado. Conferir a forma com o responsável técnico.`
           : profile.status === "notStrut"
             ? "A opção “Remover concreto excedente” só se aplica ao modelo de bielas e tirantes. A geometria original foi mantida."
             : "A face inferior já está acima da face inferior da biela ou o recorte reduziria h₂. A geometria original foi mantida.",
@@ -1265,7 +1196,7 @@ function calculateCase(
       "Não constitui dimensionamento do pilar, painel ou viga-suporte.",
     ),
   );
-  if (q.supportAnchor === "straight") {
+  if (q.supportAnchor === "straight" && !beamArrangementActive(p)) {
     add(
       check(
         "anchorFits",
@@ -1287,12 +1218,12 @@ function calculateCase(
           "fail",
         ),
       );
-  } else
+  } else if (!beamArrangementActive(p))
     add(
       note(
         "hookPath",
-        "Percurso do gancho no suporte",
-        "Conferir comprimento equivalente informado, diâmetro de dobramento, ponta reta, confinamento e interferências. A interface não define a geometria completa do pilar.",
+        "Compatibilização do gancho com o suporte",
+        "O modelo verifica projeção e ponta no contorno informado. Conferir confinamento e interferências com a armadura real do pilar.",
         "NBR 6118 §9.4.2.3–6",
       ),
     );
@@ -1319,6 +1250,31 @@ function calculateCase(
         "Compatibilidade geométrica da ancoragem horizontal",
       ),
     );
+    // Every loop of every layer, nested inside the stirrups as detailed (#64).
+    // Added only when a loop does not fit, so valid pieces keep their result.
+    if (!beamArrangementActive(p)) {
+      const worst = layout.rows
+        .map((row, layer) =>
+          loopNesting(p, row.count, detailingLoopDiameter(p, layer), layout),
+        )
+        .filter((n) => !n.fits)
+        .sort(
+          (x, y) => x.innermost - x.required - (y.innermost - y.required),
+        )[0];
+      if (worst)
+        add(
+          check(
+            "loopNesting",
+            "Alças aninhadas na largura da peça",
+            worst.required,
+            worst.innermost,
+            "mm",
+            "D + φ ≤ largura entre eixos da alça mais interna da camada (alças concêntricas dentro dos estribos, folga livre mínima entre ramos)",
+            "Compatibilidade geométrica da ancoragem horizontal",
+            `${worst.loops} alças na camada mais crítica; larguras entre eixos ${worst.widths.map((w) => number(w, 1)).join(" / ")} mm; D adotado ${number(worst.diameter, 1)} mm (pino mínimo ${number(worst.mainD, 1)} mm). Aumente b, reduza ramos por camada ou distribua em mais camadas.`,
+          ),
+        );
+    }
     if (layout.rows.some((row) => row.count % 2 !== 0))
       add(
         note(
@@ -1776,7 +1732,13 @@ export function calculate(p: Piece): CalculationResult {
     base.assumptions.push(
       "1 < a/d ≤ 2: elemento calculado como viga em balanço (paridade com o GN Corbel), com Msd = Vd·a + Hd·(hapoio + d′), flexão simples, cisalhamento pelo Modelo I com Vc = 0 e costura (h ≤ 600 mm) ou armadura de pele em revisão (h > 600 mm). Não se aplicam bielas e tirantes nem os complementos de El Debs, exceto o piso Hd ≥ 0,20 Vd. ELS, fissuração e flecha não são verificados. As referências normativas do modelo foram citadas no GN Corbel e aguardam conferência.",
     );
-  const combinations = allLoads.map((load) => calculateCase(p, load));
+  const anchorage = prepareAnchorageGeometry(p, layout, profile);
+  const combinations = allLoads.map((load) => {
+    const result = calculateCase(p, load);
+    addAnchorageChecks(p, anchorage, result);
+    result.status = statusOf(result.checks);
+    return result;
+  });
   if (
     combinations.some((c) =>
       Object.values(c.values).some((v) => !Number.isFinite(v)),
@@ -1821,6 +1783,7 @@ export function calculate(p: Piece): CalculationResult {
     if (all.some((v) => v === undefined)) delete values[key];
     else values[key] = Math.max(...all);
   }
+  envelopeAnchorage(values, combinations);
   return {
     ...base,
     combinations,

@@ -75,14 +75,20 @@
 .detail-canvas:active {
   cursor: grabbing;
 }
-.detail-canvas .detail-ARMADURAS {
+.detail-canvas .detail-ARMADURAS:not(circle) {
   stroke: #174c9b;
+}
+.detail-canvas circle.detail-ARMADURAS {
+  fill: #174c9b;
 }
 .detail-viewport.dark .detail-canvas .detail-FORMAS {
   stroke: #d4d8de;
 }
-.detail-viewport.dark .detail-canvas .detail-ARMADURAS {
+.detail-viewport.dark .detail-canvas .detail-ARMADURAS:not(circle) {
   stroke: #77adff;
+}
+.detail-viewport.dark .detail-canvas circle.detail-ARMADURAS {
+  fill: #77adff;
 }
 .detail-viewport.dark .detail-canvas .detail-COTAS {
   stroke: #9fa9b8;
@@ -925,7 +931,12 @@ h4 {
 }
 .steel {
   cursor: pointer;
-  stroke-linecap: round;
+}
+.steel,
+.steel-positive,
+.steel-detail-families {
+  stroke-linecap: butt;
+  stroke-linejoin: round;
 }
 .steel-N1 {
   stroke: var(--steel1);
@@ -949,6 +960,10 @@ rect.steel,
 }
 .steel-selected {
   stroke: var(--accent);
+}
+.steel:hover circle,
+.steel-selected circle {
+  fill: var(--accent);
 }
 .bar-label {
   fill: var(--steel1);
@@ -2722,6 +2737,9 @@ kbd {
 .steel-positive {
   stroke: var(--steel1);
   opacity: 0.8;
+}
+.steel-positive circle {
+  fill: var(--steel1);
 }
 .bar-arrangement-control {
   margin: 10px 0;

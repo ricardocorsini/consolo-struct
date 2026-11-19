@@ -662,7 +662,11 @@ describe("Viga em balanço, 1 < a/d ≤ 2 (issue #6)", () => {
     expect(r.checks.find((x) => x.id === "beamDomain")!.status).toBe("fail");
   });
   it("sugestão de armadura atende o modelo e não 'resolve' VRd2 com estribos", () => {
-    const ok = suggestReinforcement(cantileverFixture({ length: 700 }));
+    const input = cantileverFixture({ length: 700 });
+    // #64: in these 300 mm wide cantilevers, horizontal loops do not physically
+    // nest (loopNesting); the welded front anchorage keeps the case on its subject.
+    input.design.frontAnchor = "welded";
+    const ok = suggestReinforcement(input);
     expect(ok.changed).toBe(true);
     for (const id of [
       "tie",
@@ -686,21 +690,23 @@ describe("Viga em balanço, 1 < a/d ≤ 2 (issue #6)", () => {
 describe("Sugestão da viga em balanço com combinações", () => {
   it("usa o menor smáx mesmo quando outra combinação governa o tirante", () => {
     const p = cantileverFixture({
-      vertical: 287500,
-      height: 500,
+      vertical: 345000,
+      height: 600,
       length: 1000,
       loadOffset: 625,
     });
-    p.geometry.tipHeight = 250;
+    // Keep N2 embedment and the N4 tip bend feasible in this shear-spacing case.
+    Object.assign(p.geometry, { tipHeight: 275, columnWidth: 450 });
     p.design.bearingWidth = 300;
     p.design.bearingLength = 200;
     p.rebar.stirrupDiameter = 16;
     // Keep this test focused on simultaneous shear spacing. The original 6.3 mm
     // stitch fails stitchClear; that rejection is covered in autodesign.test.ts.
     p.rebar.stitchDiameter = 10;
-    p.design.loopInternalDiameter = 125;
+    // The 300 mm section fits welded bars at the required area in two layers.
+    p.design.frontAnchor = "welded";
     p.design.combinations = [
-      { name: "H", vertical: 230000, horizontal: 150000, gamma: 1.4 },
+      { name: "H", vertical: 276000, horizontal: 150000, gamma: 1.4 },
     ];
     const proposal = suggestReinforcement(p);
     expect(proposal.changed).toBe(true);
@@ -715,6 +721,7 @@ describe("Sugestão da viga em balanço com combinações", () => {
         "beamShear",
         "beamStirrups",
         "beamStirrupSpacing",
+        "beamStitch",
       ])
         expect(c.checks.find((check) => check.id === id)!.status).toBe("pass");
   });

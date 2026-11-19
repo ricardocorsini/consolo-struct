@@ -1,6 +1,12 @@
 // Exhaustive oracle for R2/R3: no pruning and no first-count stop.
 // Sizing is copied from the historical implementation, never from production helpers.
 import { area, type Piece } from "../../src/domain/model";
+import { beamArrangementActive } from "../../src/detailing/beam";
+import {
+  connectionGeometry,
+  weldedFrontIssues,
+} from "../../src/detailing/connections";
+import { concreteProfile } from "../../src/domain/profile";
 import {
   calculate,
   tieLayout,
@@ -100,8 +106,10 @@ export function exhaustiveSecondarySearch(input: Piece) {
     "frontClearance",
     "loopPin",
     "loopWidth",
+    "loopNesting",
     "loopEven",
     "loopSteel",
+    "weldDiameter",
     "cover",
     "literatureHorizontal",
     "literatureTip",
@@ -122,7 +130,28 @@ export function exhaustiveSecondarySearch(input: Piece) {
     "transverse",
     "suspension",
     "splitting",
+    "anchorN1HookBend",
+    "anchorN1HookCover",
+    "anchorN1HookHeight",
+    "anchorN1HookTail",
+    "anchorN1BeamTail",
+    "anchorN2",
+    "anchorN2Front",
+    "anchorN2Closure",
+    "anchorN2I",
+    "anchorN2IFront",
+    "anchorN2IClosure",
+    "anchorN3Closure",
+    "anchorN3GClosure",
+    "anchorN4",
+    "anchorN4Front",
+    "anchorN4Tail",
+    "anchorN4Geometry",
+    "anchorP1",
+    "anchorP1Tail",
   ]);
+  if (input.design.supportAnchor === "hook" || beamArrangementActive(input))
+    critical.add("anchorage");
 
   for (const diameter of [6.3, 8, 10, 12.5, 16, 20, 25]) {
     for (
@@ -133,6 +162,8 @@ export function exhaustiveSecondarySearch(input: Piece) {
       for (let layers = 1; layers <= 3; layers++) {
         const p = structuredClone(input);
         Object.assign(p.rebar, { tieDiameter: diameter, tieCount: count });
+        if (p.design.frontAnchor === "welded")
+          p.design.weldedBarDiameter = diameter;
         p.design.tieLayers = layers;
         if (
           layers > count ||
@@ -155,6 +186,19 @@ export function exhaustiveSecondarySearch(input: Piece) {
           r.checks.some((c) => critical.has(c.id) && c.status === "fail")
         )
           continue;
+        if (p.design.frontAnchor === "welded" && !beamArrangementActive(p)) {
+          const layout = tieLayout(p);
+          const { welded } = connectionGeometry(p, layout);
+          if (
+            weldedFrontIssues(
+              p,
+              welded,
+              upperStitchLayout(p, layout).levels,
+              concreteProfile(p),
+            ).length
+          )
+            continue;
+        }
         const rank = area(count, diameter) + layers * 0.001 + count * 0.00001;
         if (rank < score) {
           best = p;

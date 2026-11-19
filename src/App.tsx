@@ -864,7 +864,7 @@ export default function App() {
                 <h1>
                   {p.name} · {p.description}
                 </h1>
-                <span>Representação esquemática</span>
+                <span>Armaduras em escala geométrica</span>
               </div>
               {view === "three" ? (
                 <Suspense

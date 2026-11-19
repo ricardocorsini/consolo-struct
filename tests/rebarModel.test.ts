@@ -138,11 +138,12 @@ describe("Fonte única das armaduras (#63)", () => {
       const p = make();
       const model = rebarModel(p);
       const g = p.geometry;
+      const { values } = engine.calculate(p);
       const stations = [
         stirrupLayout(p).positions[0],
         g.loadOffset,
         g.length / 2,
-        -p.detailing.stitchEmbedment / 2,
+        -values.anchorN2_adopted / 2,
       ];
       for (const x of stations) {
         const cut = intersectSectionX(model, x);
@@ -221,6 +222,7 @@ describe("Fonte única das armaduras (#63)", () => {
     (_name, make) => {
       const p = make();
       const model = rebarModel(p);
+      const { values } = engine.calculate(p);
       const stitches = model.bars.filter(
         (b) => b.family === "stitch" || b.family === "lower",
       );
@@ -229,12 +231,20 @@ describe("Fonte única das armaduras (#63)", () => {
       const elevation = projectElevation(model).filter(
         ({ bar }) => bar.family === "stitch" || bar.family === "lower",
       );
-      const locations = stitches.flatMap((b) => b.locations);
+      const locations = stitches.flatMap((b) =>
+        b.locations.map((loc) => ({
+          ...loc,
+          embedment:
+            values[
+              b.family === "stitch" ? "anchorN2_adopted" : "anchorN2I_adopted"
+            ],
+        })),
+      );
       expect(scene).toHaveLength(locations.length);
       expect(elevation).toHaveLength(locations.length);
       locations.forEach((loc, i) => {
         const xs = scene[i].points.map((pt) => pt[0]);
-        expect(Math.min(...xs)).toBeCloseTo(-p.detailing.stitchEmbedment, 6);
+        expect(Math.min(...xs)).toBeCloseTo(-loc.embedment, 6);
         expect(Math.max(...xs)).toBeCloseTo(loc.x, 6);
         expect(scene[i].points.every((pt) => close(-pt[2], loc.z))).toBe(true);
         const shape = elevation[i].shape;
@@ -242,7 +252,7 @@ describe("Fonte única das armaduras (#63)", () => {
         if (shape.kind === "path") {
           const pts = samplePath(shape.path);
           expect(Math.min(...pts.map((q) => q.x))).toBeCloseTo(
-            -p.detailing.stitchEmbedment,
+            -loc.embedment,
             6,
           );
           expect(Math.max(...pts.map((q) => q.x))).toBeCloseTo(loc.x, 6);
@@ -259,6 +269,7 @@ describe("Fonte única das armaduras (#63)", () => {
     const p = curto();
     const scene = buildSceneModel(p);
     const model = rebarModel(p);
+    const { values } = engine.calculate(p);
     const ids = new Set(scene.steel.map((s) => s.id));
     for (const id of ["N1", "N2", "N3", "N4", "TS", "PINO"])
       expect(ids.has(id as never)).toBe(true);
@@ -268,18 +279,16 @@ describe("Fonte única das armaduras (#63)", () => {
     expect(scene.steel.filter((s) => s.id === "TS")).toHaveLength(
       model.bars.filter((b) => b.family === "welded").length,
     );
-    // Each straight N1 bar is followed by its support hook, with arcs.
+    // Each N1 has one continuous trajectory including the support hook.
     const ties = model.bars.filter((b) => b.family === "tie");
     const legs = ties.reduce((n, b) => n + b.quantity, 0);
     const n1 = scene.steel.filter((s) => s.id === "N1");
-    expect(n1).toHaveLength(2 * legs);
-    const hooks = n1.filter((s) => s.points.length > 2);
-    expect(hooks).toHaveLength(legs);
-    for (const hook of hooks)
+    expect(n1).toHaveLength(legs);
+    for (const bar of n1)
       expect(
-        Math.max(...hook.points.map((pt) => -pt[2])) -
-          Math.min(...hook.points.map((pt) => -pt[2])),
-      ).toBeGreaterThan(p.detailing.supportHookTail);
+        Math.max(...bar.points.map((pt) => -pt[2])) -
+          Math.min(...bar.points.map((pt) => -pt[2])),
+      ).toBeGreaterThan(values.anchorN1_tail);
   });
 
   it("o Corte B–B do modo viga corta N1 nas posições reais e mostra P1", () => {
@@ -302,6 +311,7 @@ describe("Fonte única das armaduras (#63)", () => {
       (e) =>
         e.type === "circle" &&
         e.layer === "ARMADURAS" &&
+        !e.projectionCap &&
         close(e.radius, positive.diameter / 20),
     );
     expect(p1Circles).toHaveLength(aa.positives.length + bb.positives.length);
@@ -376,8 +386,10 @@ describe("Fonte única das armaduras (#63)", () => {
     ]);
   });
 
-  it("distingue os ramos configurados dos desenhados na peça padrão", async () => {
+  it("detalha na peça padrão todos os ramos configurados, com erro explícito (#64)", async () => {
     const p = newPiece(1);
+    p.design.frontAnchor = "loop";
+    p.design.supportAnchor = "straight";
     p.quantity = 3;
     const project = { ...exampleProject(), pieces: [p] };
     const detail = buildDetail(p);
@@ -385,18 +397,23 @@ describe("Fonte única das armaduras (#63)", () => {
       true,
     );
     const svg = drawingSvg(pieceDrawing(project, detail));
-    expect(svg).toContain("2 ramos detalhados em 1 camada(s) (4 informados)");
+    // No loop is discarded: the sheet shows the 4 configured legs.
+    expect(svg).toContain("Tirante: 4 ramos detalhados em 1 camada(s) ·");
+    expect(svg).not.toContain("informados");
     expect(svg).toContain("PENDÊNCIAS IMPEDITIVAS");
     const csv = csvCells(toCsv(project));
     const header = csv[1];
     expect(csv[2][header.indexOf("Tirante (barras)")]).toBe("4");
-    expect(csv[2][header.indexOf("N1 ramos detalhados por peca")]).toBe("2");
+    expect(csv[2][header.indexOf("N1 ramos detalhados por peca")]).toBe("4");
     const schedule = csvCells(steelCsv([detail]));
-    const tie = schedule.find((r) => r[3] === "N1")!;
-    // One physical loop per piece, with two longitudinal legs.
-    expect(tie.slice(7, 9)).toEqual(["1", "3"]);
+    // Two physical loops per piece, each with two longitudinal legs.
+    for (const mark of ["N1-1", "N1-2"])
+      expect(schedule.find((r) => r[3] === mark)!.slice(7, 9)).toEqual([
+        "1",
+        "3",
+      ]);
     const memory = Buffer.from(await toPdf(project, p)).toString("latin1");
-    expect(memory).toContain("N1 no detalhamento: 2 de 4 ramos informados.");
+    expect(memory).not.toContain("N1 no detalhamento");
     expect(memory).toContain("Consumo com pendencias impeditivas");
   });
 
@@ -420,13 +437,14 @@ describe("Fonte única das armaduras (#63)", () => {
     const project = { ...exampleProject(), pieces: [p] };
     const drawing = pieceDrawing(project, buildDetail(p));
     const dashedArc = drawing.entities.find((e) => e.type === "arc" && e.dash);
-    expect(dashedArc).toBeDefined();
+    if (dashedArc?.type !== "arc" || dashedArc.thickness === undefined)
+      throw new Error("Arco tracejado sem bitola");
     expect(drawingSvg(drawing)).toMatch(/<path[^>]+stroke-dasharray="2 1"/);
     expect(drawingDxf(drawing)).toMatch(
-      /0\nARC\n100\nAcDbEntity\n8\nARMADURAS\n6\nTRACEJADO/,
+      /0\nLWPOLYLINE\n100\nAcDbEntity\n8\nARMADURAS\n6\nTRACEJADO[^]*?\n42\n/,
     );
     const pdf = Buffer.from(
-      await drawingPdf([{ ...drawing, entities: [dashedArc!] }]),
+      await drawingPdf([{ ...drawing, entities: [dashedArc] }]),
     ).toString("latin1");
     const streams = [...pdf.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)]
       .map((r) => {
@@ -438,8 +456,13 @@ describe("Fonte única das armaduras (#63)", () => {
       })
       .join("\n");
     expect(streams).toMatch(/\[5\.669\d* 2\.834\d*\] 0\.? d/);
+    const widths = [...streams.matchAll(/^([\d.]+) w$/gm)];
+    expect(Number(widths.at(-1)?.[1])).toBeCloseTo(
+      (dashedArc.thickness * 72) / 25.4,
+      8,
+    );
     expect(streams.match(/ m\n/g)).toHaveLength(1);
-    expect(streams.match(/ l\n/g)!.length).toBeGreaterThan(1);
+    expect(streams.match(/ c\n/g)!.length).toBeGreaterThan(1);
   });
 
   it.each(cases)(
@@ -564,13 +587,14 @@ describe("Fonte única das armaduras (#63)", () => {
     },
   );
 
-  it("vistas de modelagem não rodam o motor ELU fora do modo viga", () => {
+  it("as vistas de modelagem reusam o cálculo de ancoragem da peça", () => {
     const p = curto();
-    p.name = "sem-ELU";
+    p.name = "ancoragem-memorizada";
+    const { values } = engine.calculate(p);
     const spy = vi.spyOn(engine, "calculate");
     try {
-      buildRebarGeometry(p);
-      rebarModel(p);
+      buildRebarGeometry(p, values);
+      rebarModel(p, values);
       render(p);
       render(p, true);
       buildSceneModel(p);
@@ -585,12 +609,12 @@ describe("Fonte única das armaduras (#63)", () => {
     const first = rebarModel(p);
     expect(rebarModel(p)).toBe(first);
     const edited = structuredClone(p);
-    edited.detailing.stitchEmbedment += 50;
+    edited.detailing.stitchEmbedment = 350;
     const second = rebarModel(edited);
     expect(second).not.toBe(first);
     const n2 = second.bars.find((b) => b.family === "stitch")!;
     const xs = partPoints3(n2.instances[0].parts[0]).map((pt) => pt.x);
-    expect(Math.min(...xs)).toBeCloseTo(-(p.detailing.stitchEmbedment + 50), 6);
+    expect(Math.min(...xs)).toBeCloseTo(-edited.detailing.stitchEmbedment, 6);
     // Mutating the same object in place is also detected.
     p.rebar.stitchDiameter = 8;
     expect(rebarModel(p)).not.toBe(first);

@@ -1,8 +1,10 @@
 import type { Piece } from "../domain/model";
+import { constructiveAnchorage } from "../domain/anchorage";
 import { tieLayout } from "../domain/engine";
+import { detailingLoopDiameter, loopNesting } from "../domain/loops";
 import { stirrupLayout } from "../domain/theory";
 import { bottomOffsetDepth, concreteProfile } from "../domain/profile";
-import { beamArrangementActive, beamBarPositions } from "./beam";
+import { beamArrangementActive, beamBarPositions, beamTieBends } from "./beam";
 import {
   closedStirrup,
   mandrelDiameter,
@@ -103,26 +105,21 @@ export function firstLayerTiePositions(p: Piece): number[] {
     q = p.design,
     r = p.rebar;
   if (!beamArrangementActive(p) && q.frontAnchor === "loop") {
-    const loops = Math.floor(firstRow.count / 2);
-    const mainD = mandrelDiameter(r.tieDiameter, p.materials.fyk);
-    const specifiedD = q.loopInternalDiameter ?? mainD;
-    const d = Math.max(specifiedD, mainD);
-    const radius = (d + r.tieDiameter) / 2;
-    const outerWidth =
-      g.width - 2 * (g.cover + r.stirrupDiameter) - r.tieDiameter;
-    const gap = layout.spacingHorizontalMin + r.tieDiameter;
-    const maxPitch = Math.min(layout.d, 15 * r.tieDiameter);
-    const innerTarget = Math.min(maxPitch, outerWidth - 2 * gap * (loops - 1));
-    const nestingPitch =
-      loops > 1 ? (outerWidth - innerTarget) / (2 * (loops - 1)) : 0;
-    const positions: number[] = [];
-    for (let i = 0; i < loops; i++) {
-      const width = outerWidth - 2 * i * nestingPitch;
-      if (width < 2 * radius) continue;
-      const inset = (g.width - width) / 2;
-      positions.push(inset, g.width - inset);
-    }
-    return positions.sort((a, b) => a - b);
+    // The loops as detailed (#64): same nesting and the same clamp to the
+    // narrowest width that holds the curve, so no leg is lost here either.
+    const nest = loopNesting(
+      p,
+      firstRow.count,
+      // The detailing numbers layers among the non-empty rows: this is the first.
+      detailingLoopDiameter(p, 0),
+      layout,
+    );
+    return nest.widths
+      .flatMap((w) => {
+        const inset = (g.width - Math.max(w, nest.required)) / 2;
+        return [inset, g.width - inset];
+      })
+      .sort((a, b) => a - b);
   }
   return beamBarPositions(p, firstRow.count, r.tieDiameter);
 }
@@ -131,13 +128,13 @@ export function transverseGeometry(
   p: Piece,
   sectionX?: number,
   placedTiePositions?: number[],
+  { concrete = concreteProfile(p), checkInterferences = true } = {},
 ) {
   const g = p.geometry,
     r = p.rebar;
   const branches = r.stirrupBranches ?? 2,
     diameter = r.constructiveDiameter ?? 8;
-  const concrete = concreteProfile(p),
-    layout = stirrupLayout(p);
+  const layout = stirrupLayout(p);
   const mandrel = mandrelDiameter(
     r.stirrupDiameter,
     p.materials.fykTransverse,
@@ -248,7 +245,7 @@ export function transverseGeometry(
       samplePath(translatePath(s.path, s.offset, layout.offset), 24).map(
         (pt) => [s.x, pt.x, pt.y] as Point3,
       );
-    for (let i = 0; i < sections.length; i++) {
+    for (let i = 0; checkInterferences && i < sections.length; i++) {
       if (
         sections
           .slice(i + 1)
@@ -283,11 +280,17 @@ export function transverseGeometry(
   };
 }
 
-export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
+export function constructiveGeometry(
+  p: Piece,
+  t = transverseGeometry(p),
+  concrete = concreteProfile(p),
+) {
   const g = p.geometry,
     r = p.rebar;
-  const concrete = concreteProfile(p),
-    diameter = t.diameter;
+  const diameter = t.diameter;
+  const axisCover = g.cover + diameter / 2;
+  const layout = tieLayout(p);
+  const support = constructiveAnchorage(p);
   const nominalMandrel = mandrelDiameter(diameter, p.materials.fykTransverse);
   const nominalRadius = (nominalMandrel + diameter) / 2;
   const radius =
@@ -300,8 +303,11 @@ export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
       m = (v.depth - a.depth) / (v.x - a.x);
     return { m, b: a.depth - m * a.x - t.offset * Math.sqrt(1 + m * m) };
   });
-  const end = g.length - g.cover - r.tieDiameter - diameter / 2;
-  const back = -(g.columnWidth - g.cover - diameter / 2);
+  const innerLayer = Math.min(layout.rows.length, r.tieCount) - 1;
+  const end = beamArrangementActive(p)
+    ? beamTieBends(p, innerLayer).front - r.tieDiameter / 2 - diameter / 2
+    : g.length - axisCover;
+  const back = -support.adopted;
   const corners = lines
     .slice(1)
     .map((line, i) => {
@@ -318,11 +324,9 @@ export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
       ?.m ?? lines.at(-1)!.m;
   const tangent = radius * Math.tan((Math.PI / 2 + Math.atan(lastSlope)) / 2);
   const ceiling =
-    tieLayout(p).maxDepth +
-    r.tieDiameter / 2 +
-    diameter / 2 +
-    Math.max(20, diameter);
-  const tail = Math.max(8 * diameter, bottom(end) - tangent - ceiling);
+    layout.maxDepth + r.tieDiameter / 2 + diameter / 2 + Math.max(20, diameter);
+  const tailAvailable = Math.max(0, bottom(end) - tangent - ceiling);
+  const tail = Math.max(8 * diameter, tailAvailable);
   const vertices = [
     { x: back, y: bottom(0) },
     { x: 0, y: bottom(0) },
@@ -342,31 +346,35 @@ export function constructiveGeometry(p: Piece, t = transverseGeometry(p)) {
     problems.push(
       "N4 não comporta o percurso, o mandril e as dobras no contorno informado.",
     );
-  for (const pt of samplePath(path, 32)) {
-    if (
-      pt.y < g.cover + diameter / 2 - 1e-6 ||
-      pt.x < -g.columnWidth + g.cover + diameter / 2 - 1e-6 ||
-      pt.x > g.length - g.cover - diameter / 2 + 1e-6 ||
-      pt.y >
-        (pt.x < 0
-          ? g.height - g.cover - diameter / 2
-          : bottomOffsetDepth(concrete, pt.x, g.cover + diameter / 2)) +
-          1e-6
-    ) {
-      problems.push(
-        "O percurso de N4 invade o cobrimento; rever geometria sem reduzir bitola, cobrimento ou dobra.",
-      );
-      break;
-    }
-  }
+  if (
+    t.positions.some(
+      (y) => y < axisCover - 1e-6 || y > g.width - axisCover + 1e-6,
+    ) ||
+    samplePath(path, 32).some(
+      (pt) =>
+        pt.y < axisCover - 1e-6 ||
+        pt.x < -g.columnWidth + axisCover - 1e-6 ||
+        pt.x > g.length - axisCover + 1e-6 ||
+        pt.y >
+          (pt.x < 0
+            ? g.height - axisCover
+            : bottomOffsetDepth(concrete, pt.x, axisCover)) +
+            1e-6,
+    )
+  )
+    problems.push(
+      "O percurso de N4 invade o cobrimento; rever geometria sem reduzir bitola, cobrimento ou dobra.",
+    );
   return {
     ...t,
+    support,
     path,
     vertices,
     end,
     back,
     ceiling,
     tail,
+    tailAvailable,
     radius,
     mandrel: 2 * radius - diameter,
     problems,

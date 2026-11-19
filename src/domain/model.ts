@@ -113,8 +113,22 @@ export function geometryErrors(p: Piece): string[] {
   return errors;
 }
 export const fingerprint = (p: Piece) =>
-  JSON.stringify([p.geometry, p.loads, p.materials, p.rebar, p.design]);
+  JSON.stringify([
+    p.geometry,
+    p.loads,
+    p.materials,
+    p.rebar,
+    p.design,
+    p.detailing?.supportHookProjection,
+    p.detailing?.supportHookTail,
+    p.detailing?.stitchEmbedment,
+    p.detailing?.barArrangement,
+    p.detailing?.beamBottomDiameter,
+    p.detailing?.pins,
+    p.detailing?.secondLoopDiameter,
+  ]);
 export function newPiece(index: number): Piece {
+  const design = defaultDesign();
   return {
     id: crypto.randomUUID(),
     name: `C${String(index).padStart(2, "0")}`,
@@ -131,11 +145,11 @@ export function newPiece(index: number): Piece {
     },
     loads: { vertical: 350000, horizontal: 40000, gamma: 1.4 },
     materials: { fck: 30, fyk: 500, fykTransverse: 500 },
-    design: defaultDesign(),
+    design,
     detailing: defaultDetailing(),
     rebar: {
       tieCount: 4,
-      tieDiameter: 20,
+      tieDiameter: design.weldedBarDiameter,
       stitchCount: 6,
       stitchDiameter: 6.3,
       stirrupCount: 5,
@@ -160,9 +174,9 @@ export function exampleProject(): Project {
     length: 220,
     loadOffset: 110,
   };
-  second.design = defaultDesign(250, 220, 300, 25);
   second.loads.vertical = 250000;
   second.rebar.tieDiameter = 16;
+  second.design = defaultDesign(250, 220, 300, 25, second.rebar.tieDiameter);
   return {
     format: "lumeconsolo",
     schemaVersion: 6,
@@ -170,6 +184,18 @@ export function exampleProject(): Project {
     client: "Projeto de demonstração",
     author: "",
     pieces: [first, second],
+  };
+}
+
+/** Follow N1 when TS had the same diameter. Keep a separate manual choice. */
+export function withTieDiameter(p: Piece, tieDiameter: number): Piece {
+  return {
+    ...p,
+    rebar: { ...p.rebar, tieDiameter },
+    design:
+      p.design.weldedBarDiameter === p.rebar.tieDiameter
+        ? { ...p.design, weldedBarDiameter: tieDiameter }
+        : p.design,
   };
 }
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -254,11 +280,22 @@ export function decodeProject(text: string): Project {
               g.data.columnWidth,
               g.data.cover,
             ),
-            // Preserve semantic special reinforcement if a v1 producer supplied it.
+            // Version 1 had no anchorage by default. Keep its historical reconstruction.
+            frontAnchor: "loop",
+            supportAnchor: "straight",
+            // Preserve anchorage and special reinforcement if a v1 producer supplied them.
             ...("design" in p && p.design && typeof p.design === "object"
               ? Object.fromEntries(
                   Object.entries(p.design).filter(([key]) =>
                     [
+                      "frontAnchor",
+                      "loopInternalDiameter",
+                      "weldedBarDiameter",
+                      "weldResistancePerBar",
+                      "weldSpecification",
+                      "supportAnchor",
+                      "supportAnchorLength",
+                      "hookNormalCover",
                       "splittingCount",
                       "splittingDiameter",
                       "suspensionCount",

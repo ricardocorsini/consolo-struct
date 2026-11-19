@@ -38,7 +38,7 @@ describe("Coeficientes dos materiais — resistências em MPa", () => {
       "beam",
       30,
       0,
-      "cb86344a673ccde3276b853c8424d657aab27c32a582b5bc995cc8494ceca6bf",
+      "518399f9452045c7decf10fdb383b4317a42ac9c338bb304e220512c00ad08ad",
     ],
   ] as const)(
     "mantém o resultado completo anterior para %s com os padrões",

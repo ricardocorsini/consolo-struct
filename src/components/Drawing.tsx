@@ -1,9 +1,10 @@
-import { samplePath } from "../detailing/geometry";
+import { at, type BarPath, type Point } from "../detailing/geometry";
 import { projectElevation, rebarModel } from "../detailing/rebarModel";
+import { pathExtent } from "../detailing/rebarPlacement";
 import { tieLayout } from "../domain/engine";
 import { reactionGeometry, stirrupLayout } from "../domain/theory";
 import { bottomDepth, concreteProfile } from "../domain/profile";
-import { useId, useMemo } from "react";
+import { Fragment, useId, useMemo } from "react";
 import { number, type Piece, type GeometryKey } from "../domain/model";
 import {
   dimensionLabel,
@@ -146,23 +147,26 @@ export default function Drawing({
     () => (rebar && !section ? elevationShapes(p) : []),
     [p, rebar, section],
   );
-  // Outer N3 cut by A–A: its physical corner radius and height bound the N2 symbols.
-  const outerStirrup = detail.bars.find(
-    (bar) =>
-      bar.mark ===
-      sectionRebar.stirrups.find((item) => item.family === "stirrup")?.mark,
-  );
-  const rootSection = {
-    radius: outerStirrup
-      ? (outerStirrup.mandrel + outerStirrup.diameter) / 2
-      : 0,
-    stirrupOffset: outerStirrup?.locations[0].z ?? stations.offset,
-  };
-  const rootOuter = {
-    height:
-      outerStirrup?.height ??
-      bottomDepth(concreteProfile(p), sectionX) - 2 * stations.offset,
-  };
+  const stitchProjectionFits = useMemo(() => {
+    const n3 = sectionRebar.stirrups.find((bar) => bar.family === "stirrup");
+    if (!n3) return sectionRebar.stitches.length === 0;
+    const [left, right] = pathExtent(n3.path, "x");
+    const [top, bottom] = pathExtent(n3.path, "y");
+    const radius =
+      n3.path.segments.find((segment) => segment.type === "arc")?.radius ?? 0;
+    return sectionRebar.stitches.every(({ depth, diameter, positions }) =>
+      positions.every((v) => {
+        // Signed distance from the cut center to the nominal N3 axis contour.
+        const dx = Math.max(left - v, v - right) + radius;
+        const dy = Math.max(top - depth, depth - bottom) + radius;
+        const distance =
+          Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) +
+          Math.min(0, Math.max(dx, dy)) -
+          radius;
+        return distance + (diameter + n3.diameter) / 2 <= 1e-6;
+      }),
+    );
+  }, [sectionRebar]);
   const sectionHeadroom = Math.max(
     0,
     ...sectionRebar.lines.flatMap((line) => [-line.a.y, -line.b.y]),
@@ -187,35 +191,9 @@ export default function Drawing({
       : Math.min(1, 40 / Math.max(1, p.design.bearingHeight)),
   );
   const sectionLeft = 400 - (g.width * s) / 2;
-  const stitchRadius = (p.rebar.stitchDiameter * s) / 2;
-  const stitchInset = (depth: number) => {
-    // Erode the actual outer N3 contour, with its physical radius and stroke.
-    // This symbol clearance does not change N2 levels or reinforcement design.
-    const corner = rootSection.radius * s;
-    const clearance =
-      stitchRadius + s / 2 + (p.rebar.stirrupDiameter * s) / 2 + s / 2;
-    const edgeDistance =
-      Math.min(
-        depth - rootSection.stirrupOffset,
-        rootSection.stirrupOffset + rootOuter.height - depth,
-      ) * s;
-    const innerCorner = Math.max(0, corner - clearance);
-    const cornerInset =
-      corner -
-      Math.sqrt(
-        Math.max(0, innerCorner ** 2 - Math.max(0, corner - edgeDistance) ** 2),
-      );
-    return rootSection.stirrupOffset * s + Math.max(clearance, cornerInset);
-  };
-  const stitchProjectionFits = sectionRebar.stitches.every(
-    ({ depth }) =>
-      Math.min(
-        depth - rootSection.stirrupOffset,
-        rootSection.stirrupOffset + rootOuter.height - depth,
-      ) >=
-      (p.rebar.stirrupDiameter + p.rebar.stitchDiameter) / 2,
-  );
   const sectionTop = 140 + sectionHeadroom * s;
+  const across = (v: number) => sectionLeft + v * s;
+  const depthAt = (depth: number) => sectionTop + depth * s;
   const sectionCentroid = sectionTop + layout.dPrime * s;
   const dPrimeLabel = dimensionLabel("tieCentroid", layout.dPrime, true);
   const ox = 400 - ((elevationLeft + elevationRight) * s) / 2;
@@ -291,8 +269,57 @@ export default function Drawing({
   const removedPath = cut
     ? `M${X(0)} ${Y(g.height)}L${X(g.length)} ${Y(g.tipHeight)}`
     : "";
-  const polyline = (pts: { x: number; y: number }[]) =>
-    pts.map((v, i) => `${i ? "L" : "M"}${X(v.x)} ${Y(v.y)}`).join("");
+  const barPathData = (path: BarPath, x = X, y = Y) => {
+    const svgPoint = (point: Point) => `${x(point.x)} ${y(point.y)}`;
+    return path.segments
+      .map((segment, i) => {
+        if (segment.type === "line")
+          return `${i === 0 ? `M${svgPoint(segment.a)}` : ""}L${svgPoint(segment.b)}`;
+        const start = at(segment.center, segment.radius, segment.start);
+        const end = at(
+          segment.center,
+          segment.radius,
+          segment.start + segment.sweep,
+        );
+        const radius = segment.radius * s;
+        return `${i === 0 ? `M${svgPoint(start)}` : ""}A${radius} ${radius} 0 ${Math.abs(segment.sweep) > Math.PI ? 1 : 0} ${segment.sweep > 0 ? 1 : 0} ${svgPoint(end)}`;
+      })
+      .join("");
+  };
+  const barStroke = (diameter: number) => ({
+    strokeWidth: diameter * s,
+    "data-physical-diameter": diameter,
+  });
+  const barCircle = (diameter: number) => ({
+    r: (diameter * s) / 2,
+    stroke: "none",
+    "data-physical-diameter": diameter,
+  });
+  const sectionHitArea = (x: number, y: number, diameter: number) =>
+    diameter * s < 6 && (
+      <rect
+        x={x - 3}
+        y={y - 3}
+        width={6}
+        height={6}
+        fill="transparent"
+        stroke="none"
+        pointerEvents="all"
+        data-selection-hit=""
+        aria-hidden="true"
+      />
+    );
+  const projectedCaps = (endCaps: Point[] | undefined, diameter: number) =>
+    endCaps?.map((point, i) => (
+      <circle
+        key={i}
+        data-projection-cap=""
+        cx={X(point.x)}
+        cy={Y(point.y)}
+        r={(diameter * s) / 2}
+        stroke="none"
+      />
+    ));
   const groupProps = (id: string) => ({
     className: `steel steel-${id} ${selectedBar === id ? "steel-selected" : ""}`,
     role: "button",
@@ -387,8 +414,8 @@ export default function Drawing({
                 className="dimension-text"
                 fill="var(--danger)"
               >
-                N2 sem espaço no contorno projetado de N3: conferir disposição;
-                níveis preservados.
+                N2 sem espaço no contorno projetado de N3. Confira a disposição
+                nas coordenadas exibidas.
               </text>
             )}
             {rebar &&
@@ -410,11 +437,7 @@ export default function Drawing({
               )}
             {rebar && (
               <>
-                <g
-                  {...groupProps("N3")}
-                  fill="none"
-                  strokeWidth={p.rebar.stirrupDiameter * s}
-                >
+                <g {...groupProps("N3")}>
                   {sectionRebar.stirrups.map((item, i) => (
                     <path
                       key={i}
@@ -423,40 +446,38 @@ export default function Drawing({
                         item.family === "stirrupInner" ? "grampo" : "externo"
                       }
                       data-longitudinal-position={item.x}
-                      d={samplePath(item.path, 24)
-                        .map(
-                          (pt, j) =>
-                            `${j ? "L" : "M"}${400 + (pt.x - g.width / 2) * s} ${sectionTop + pt.y * s}`,
-                        )
-                        .join("")}
+                      d={barPathData(item.path, across, depthAt)}
+                      {...barStroke(item.diameter)}
                     />
                   ))}
                 </g>
                 <g {...groupProps("N4")}>
                   {sectionRebar.constructive.map(
                     ({ v, depth, x, diameter, mark }, i) => (
-                      <circle
-                        key={i}
-                        data-mark={mark}
-                        data-longitudinal-position={x}
-                        cx={400 + (v - g.width / 2) * s}
-                        cy={sectionTop + depth * s}
-                        r={(diameter * s) / 2}
-                        strokeWidth="0.5"
-                      />
+                      <Fragment key={i}>
+                        {sectionHitArea(across(v), depthAt(depth), diameter)}
+                        <circle
+                          data-mark={mark}
+                          data-longitudinal-position={x}
+                          cx={across(v)}
+                          cy={depthAt(depth)}
+                          {...barCircle(diameter)}
+                        />
+                      </Fragment>
                     ),
                   )}
                 </g>
                 <g {...groupProps("N1")}>
                   {sectionRebar.ties.map(({ v, depth, diameter, mark }, i) => (
-                    <circle
-                      key={i}
-                      data-mark={mark}
-                      cx={400 + (v - g.width / 2) * s}
-                      cy={sectionTop + depth * s}
-                      r={Math.max(3, (diameter * s) / 2)}
-                      strokeWidth="1"
-                    />
+                    <Fragment key={i}>
+                      {sectionHitArea(across(v), depthAt(depth), diameter)}
+                      <circle
+                        data-mark={mark}
+                        cx={across(v)}
+                        cy={depthAt(depth)}
+                        {...barCircle(diameter)}
+                      />
+                    </Fragment>
                   ))}
                 </g>
                 {beam && (
@@ -464,38 +485,37 @@ export default function Drawing({
                     className="steel-positive"
                     data-testid="beam-positive-section"
                   >
-                    {sectionRebar.positives.map(({ v, depth, diameter }, i) => (
-                      <circle
-                        key={i}
-                        cx={400 + (v - g.width / 2) * s}
-                        cy={sectionTop + depth * s}
-                        r={Math.max(3, (diameter * s) / 2)}
-                        strokeWidth="1"
-                      />
-                    ))}
+                    {sectionRebar.positives.map(
+                      ({ v, depth, diameter, mark }, i) => (
+                        <circle
+                          key={i}
+                          data-mark={mark}
+                          cx={across(v)}
+                          cy={depthAt(depth)}
+                          {...barCircle(diameter)}
+                        />
+                      ),
+                    )}
                   </g>
                 )}
-                <g {...groupProps("N2")} strokeWidth={s}>
+                <g {...groupProps("N2")}>
                   {sectionRebar.stitches.map(
-                    ({ depth, positions, mark }, t) => (
+                    ({ depth, positions, mark, diameter }, t) => (
                       <g key={t} data-mark={mark}>
-                        {positions.map((v, i) => {
-                          const inset = Math.max(
-                            Math.min(v, g.width - v) * s,
-                            stitchInset(depth),
-                          );
-                          return (
+                        {positions.map((v, i) => (
+                          <Fragment key={i}>
+                            {sectionHitArea(
+                              across(v),
+                              depthAt(depth),
+                              diameter,
+                            )}
                             <circle
-                              key={i}
-                              cx={
-                                sectionLeft +
-                                (v <= g.width / 2 ? inset : g.width * s - inset)
-                              }
-                              cy={sectionTop + depth * s}
-                              r={stitchRadius}
+                              cx={across(v)}
+                              cy={depthAt(depth)}
+                              {...barCircle(diameter)}
                             />
-                          );
-                        })}
+                          </Fragment>
+                        ))}
                       </g>
                     ),
                   )}
@@ -506,9 +526,9 @@ export default function Drawing({
                       key={i}
                       data-family={line.family}
                       data-mark={line.mark}
-                      d={`M${sectionLeft + line.a.x * s} ${sectionTop + line.a.y * s}L${sectionLeft + line.b.x * s} ${sectionTop + line.b.y * s}`}
+                      d={`M${across(line.a.x)} ${depthAt(line.a.y)}L${across(line.b.x)} ${depthAt(line.b.y)}`}
                       fill="none"
-                      strokeWidth={line.diameter * s}
+                      {...barStroke(line.diameter)}
                     >
                       <title>{`${line.mark} · no plano de corte A–A`}</title>
                     </path>
@@ -623,38 +643,46 @@ export default function Drawing({
             />
             {rebar && (
               <>
-                <g {...groupProps("N2")} fill="none" strokeWidth="2">
+                <g {...groupProps("N2")}>
                   {elevationOf("stitch", "lower").map(
                     ({ bar, shape }, i) =>
                       shape.kind === "path" && (
-                        <path
-                          key={i}
-                          data-mark={bar.mark}
-                          data-quantity={bar.quantity}
-                          d={polyline(samplePath(shape.path, 24))}
-                        >
-                          <title>{`${bar.mark} · ${bar.quantity} barra(s)`}</title>
-                        </path>
+                        <Fragment key={i}>
+                          <path
+                            data-mark={bar.mark}
+                            data-quantity={bar.quantity}
+                            d={barPathData(shape.path)}
+                            {...barStroke(bar.diameter)}
+                          >
+                            <title>{`${bar.mark} · ${bar.quantity} barra(s)`}</title>
+                          </path>
+                          {projectedCaps(shape.endCaps, bar.diameter)}
+                        </Fragment>
                       ),
                   )}
                 </g>
-                <g {...groupProps("N3")} fill="none" strokeWidth="2">
+                <g {...groupProps("N3")}>
                   {elevationOf("stirrup", "stirrupInner").map(
                     ({ bar, part, shape }, i) =>
                       shape.kind === "path" && (
-                        <path
-                          key={i}
-                          data-mark={bar.mark}
-                          data-n3-part={
-                            bar.family === "stirrupInner" ? "grampo" : "externo"
-                          }
-                          data-longitudinal-position={part.at}
-                          d={polyline(samplePath(shape.path, 24))}
-                        />
+                        <Fragment key={i}>
+                          <path
+                            data-mark={bar.mark}
+                            data-n3-part={
+                              bar.family === "stirrupInner"
+                                ? "grampo"
+                                : "externo"
+                            }
+                            data-longitudinal-position={part.at}
+                            d={barPathData(shape.path)}
+                            {...barStroke(bar.diameter)}
+                          />
+                          {projectedCaps(shape.endCaps, bar.diameter)}
+                        </Fragment>
                       ),
                   )}
                 </g>
-                <g {...groupProps("N4")} fill="none" strokeWidth="2.5">
+                <g {...groupProps("N4")}>
                   {elevationOf("constructive").map(
                     ({ bar, part, shape }, i, all) =>
                       shape.kind === "path" && (
@@ -662,7 +690,8 @@ export default function Drawing({
                           key={i}
                           data-mark={bar.mark}
                           data-transverse-position={part.at}
-                          d={polyline(samplePath(shape.path, 24))}
+                          d={barPathData(shape.path)}
+                          {...barStroke(bar.diameter)}
                         >
                           <title>
                             {`N4 construtiva · barra ${i + 1} de ${all.length} · sem contribuição resistente`}
@@ -671,21 +700,19 @@ export default function Drawing({
                       ),
                   )}
                 </g>
-                <g
-                  {...groupProps("N1")}
-                  fill="none"
-                  strokeWidth="4"
-                  strokeLinejoin="round"
-                >
-                  {elevationTies.map(({ bar, path }, i) => (
-                    <path
-                      key={i}
-                      d={polyline(samplePath(path, 24))}
-                      data-mark={bar.mark}
-                      data-quantity={bar.quantity}
-                    >
-                      <title>{`${bar.mark} · ${bar.quantity} barra(s)`}</title>
-                    </path>
+                <g {...groupProps("N1")}>
+                  {elevationTies.map(({ bar, path, endCaps }, i) => (
+                    <Fragment key={i}>
+                      <path
+                        d={barPathData(path)}
+                        data-mark={bar.mark}
+                        data-quantity={bar.quantity}
+                        {...barStroke(bar.diameter)}
+                      >
+                        <title>{`${bar.mark} · ${bar.quantity} barra(s)`}</title>
+                      </path>
+                      {projectedCaps(endCaps, bar.diameter)}
+                    </Fragment>
                   ))}
                 </g>
                 {beam && (
@@ -693,8 +720,6 @@ export default function Drawing({
                     className="steel-positive"
                     data-testid="beam-positive"
                     fill="none"
-                    strokeWidth="3"
-                    strokeLinejoin="round"
                   >
                     <title>Armadura positiva (armado como viga)</title>
                     {elevationOf("positive")
@@ -711,7 +736,8 @@ export default function Drawing({
                               key={bar.mark}
                               data-mark={bar.mark}
                               data-quantity={bar.quantity}
-                              d={polyline(samplePath(shape.path, 24))}
+                              d={barPathData(shape.path)}
+                              {...barStroke(bar.diameter)}
                             />
                           ),
                       )}
@@ -738,14 +764,13 @@ export default function Drawing({
                         {shape.kind === "line" ? (
                           <path
                             d={`M${X(shape.a.x)} ${Y(shape.a.y)}L${X(shape.b.x)} ${Y(shape.b.y)}`}
-                            strokeWidth={shape.diameter * s}
+                            {...barStroke(shape.diameter)}
                           />
                         ) : (
                           <circle
                             cx={X(shape.center.x)}
                             cy={Y(shape.center.y)}
-                            r={(shape.diameter * s) / 2}
-                            strokeWidth="0.5"
+                            {...barCircle(shape.diameter)}
                           />
                         )}
                       </g>

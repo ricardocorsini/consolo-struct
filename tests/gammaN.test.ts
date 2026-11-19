@@ -204,12 +204,12 @@ describe("Padrão e assinaturas de entradas", () => {
     [
       "beam",
       2,
-      "752a8788a6f66d5eebaa175ad546dc05816af18716f84b12b7f465662be93d80",
+      "645d6f8aaf6fd306dbd8699c7810f1d3c38fdf5c1c1e27b2cfec43033a883f2e",
     ],
     [
       "beam",
       4,
-      "38db0cae7fbde7034e0bf8d638416114229e6bef459fcbb9fb84766ed6489bcc",
+      "fe0effd4164780624405fdf451f3e6bd5b4021659d9d5e262aadb3b50770fa3f",
     ],
   ] as const)(
     "mantém o resultado integral de %s com %i ramos capturado na master 38e4fb1 antes da integração",
@@ -250,7 +250,7 @@ describe("Padrão e assinaturas de entradas", () => {
     ],
     [
       "beam",
-      "32d1a7989f09f1c2f0a1a57b6e149248a94e717c8f915855ae87743eac895c7d",
+      "c7f699a979867da560028f3f2ba69ad0512620100e82d65581cb288318576652",
     ],
   ] as const)(
     "mantém resultado completo legado de %s capturado em fa8c890",

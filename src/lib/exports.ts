@@ -1,5 +1,12 @@
 import { rebarModel } from "../detailing/rebarModel";
 import {
+  anchorageFamilies,
+  anchorageFields,
+  anchorageKey,
+  anchorageLabels,
+  anchorageRows,
+} from "../domain/anchorage";
+import {
   calculate,
   classificationLabels,
   ENGINE_VERSION,
@@ -171,6 +178,14 @@ const csvCell = (v: unknown) =>
     .replace(/^[=+@\-\t\r]/, "'$&")
     .replaceAll('"', '""')}"`;
 export function toCsv(project: Project) {
+  const anchorColumns = [
+    "required",
+    "available",
+    "nominal",
+    "axis",
+    "adopted",
+    "front",
+  ] as const;
   const withGammaN = project.pieces.some(
     (p) => p.design.gammaNPolicy === "table9062",
   );
@@ -219,6 +234,12 @@ export function toCsv(project: Project) {
     "Taxa de aco detalhado (kg/m3)",
     "Volume consolo por peca (m3)",
     "Aco detalhado por peca (kg)",
+    ...anchorageFamilies.flatMap((family) =>
+      anchorColumns.map(
+        (field) => `${family} ${anchorageLabels[field][0]} (mm)`,
+      ),
+    ),
+    "N4 comprimento desenvolvido unitario (cm)",
   );
   for (const p of project.pieces) {
     const r = calculate(p);
@@ -276,6 +297,13 @@ export function toCsv(project: Project) {
       number(rebar.steelRate, 1),
       number(rebar.concreteVolume, 3),
       number(rebar.mass, 2),
+      ...anchorageFamilies.flatMap((family) =>
+        anchorColumns.map((field) => {
+          const value = r.values[anchorageKey(family, field)];
+          return value === undefined ? "" : number(value, 3);
+        }),
+      ),
+      n4 ? number(n4.exactLength / 10, 3) : "",
     ]);
   }
   return "\uFEFF" + rows.map((r) => r.map(csvCell).join(";")).join("\r\n");
@@ -428,10 +456,14 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
   const n4 = rebar.bars.find((b) => b.family === "constructive");
   const n4Count = n4?.quantity ?? 0;
   line(
-    `N4 construtiva: face inferior com dobra frontal e prolongamento no suporte; ${n4Count} barras phi ${n4?.diameter ?? p.rebar.constructiveDiameter ?? 8} mm; C unitario=${n4 ? number(n4.cutLength / 10, 1) : "--"} cm; massa total=${n4 ? number(n4.totalMass, 3) : "--"} kg. Consultar forma e pendencias no detalhamento.`,
+    `N4 construtiva. ${n4Count} barras phi ${n4?.diameter ?? p.rebar.constructiveDiameter ?? 8} mm, com dobra frontal e prolongamento no suporte.`,
   );
+  if (n4)
+    line(
+      `N4 desenvolvida = ${number(n4.exactLength / 10, 3)} cm. C unitario = ${number(n4.cutLength / 10, 1)} cm. Massa total = ${number(n4.totalMass, 3)} kg.`,
+    );
   rebar.issues
-    .filter((issue) => issue.code.startsWith("constructive-fit-"))
+    .filter((issue) => issue.code.startsWith("constructive-"))
     .forEach((issue) => line(issue.message, 10, true));
   line(
     `Consumo por peca: concreto ${number(rebar.concreteVolume, 3)} m3; aco detalhado ${number(rebar.mass, 2)} kg; taxa de aco ${number(rebar.steelRate, 1)} kg/m3. Total (${p.quantity} pecas): concreto ${number(rebar.totalConcreteVolume, 3)} m3; aco ${number(rebar.totalMass, 2)} kg.`,
@@ -452,6 +484,22 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       10,
       true,
     );
+  const familyAnchorage = (values: Record<string, number>) => {
+    for (const row of anchorageRows(values)) {
+      const data = anchorageFields.flatMap((field) => {
+        const value = row[field];
+        const [label, unit] = anchorageLabels[field];
+        return value === undefined
+          ? []
+          : [`${label} = ${num(value)} ${unit}`.trim()];
+      });
+      line(`${row.family} | ${data.join(" | ")}`, 8);
+    }
+  };
+  if (anchorageRows(result.values).length) {
+    title("Ancoragem por familia de armadura");
+    familyAnchorage(result.values);
+  }
   title("3. Envelope de verificacoes");
   line(
     `Combinacao determinante da area do tirante: ${result.governingCase || "--"}. Cada verificacao e envelopada separadamente; nao se misturam V e H de casos diferentes.`,
@@ -473,6 +521,7 @@ export async function toPdf(project: Project, p: Piece): Promise<Uint8Array> {
       `${i + 1}. ${c.name} | ${classificationLabels[c.classification].toUpperCase()} | ${methodLabels[c.method].toUpperCase()}`,
     );
     const v = c.values;
+    familyAnchorage(v);
     if (c.method === "beam") {
       for (const [label, val, unit] of [
         ["Vd", v.vertical, "N"],

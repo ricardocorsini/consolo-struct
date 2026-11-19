@@ -20,6 +20,7 @@ import { pieceDrawing } from "../src/detailing/drawing";
 import { buildSceneModel } from "../src/visualization/model3d";
 import { piecePoints } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
+import { isFamilyAnchorage } from "./reference/legacy-anchorage-contract";
 
 const withOption = (p: Piece, value: "keep" | "remove"): Piece => ({
   ...p,
@@ -50,8 +51,8 @@ const strutPiece = () => {
   return p;
 };
 const caseChecks = (p: Piece) => calculate(p).combinations[0].checks;
-const withoutNote = (p: Piece) =>
-  caseChecks(p).filter((c) => c.id !== "excessConcrete");
+const resistantChecks = (checks: ReturnType<typeof caseChecks>) =>
+  checks.filter((c) => c.id !== "excessConcrete" && !isFamilyAnchorage(c.id));
 
 describe("Concreto excedente — opção manter/remover", () => {
   it("usa “manter” por padrão e em projetos salvos sem o campo", () => {
@@ -116,11 +117,14 @@ describe("Concreto excedente — opção manter/remover", () => {
     }
   });
 
-  it("não altera nenhuma verificação além da nota de conferência", () => {
+  it("preserva as verificações resistentes e confere a ancoragem no recorte", () => {
     for (const base of [strutPiece(), shortFixture()]) {
-      const kept = withoutNote(base);
+      const kept = caseChecks(base);
       const removed = caseChecks(withOption(base, "remove"));
-      expect(removed.filter((c) => c.id !== "excessConcrete")).toEqual(kept);
+      expect(resistantChecks(removed)).toEqual(resistantChecks(kept));
+      expect(removed.find((c) => c.id === "anchorN4Front")?.capacity).not.toBe(
+        kept.find((c) => c.id === "anchorN4Front")?.capacity,
+      );
       const note = removed.find((c) => c.id === "excessConcrete");
       expect(note?.status).toBe("review");
     }

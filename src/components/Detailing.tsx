@@ -4,7 +4,7 @@ import TechnicalViewport from "./TechnicalViewport";
 import { detailRequestKey, type DetailBundle } from "../detailing/job";
 import { cachedDetails, requestDetails } from "../detailing/service";
 import type { Piece, Project } from "../domain/model";
-import { number } from "../domain/model";
+import { number, withTieDiameter } from "../domain/model";
 import { NumericField } from "./NumericField";
 import { beamArrangementActive } from "../detailing/beam";
 import {
@@ -271,12 +271,7 @@ function Detailing({
                 max={40}
                 step={0.1}
                 value={piece.rebar.tieDiameter}
-                onChange={(v) =>
-                  update({
-                    ...piece,
-                    rebar: { ...piece.rebar, tieDiameter: v },
-                  })
-                }
+                onChange={(v) => update(withTieDiameter(piece, v))}
               />
               {beamArrangementActive(piece) && (
                 <p className="detail-tip">
@@ -379,6 +374,13 @@ function Detailing({
                     value={piece.detailing.supportHookProjection}
                     onChange={(v) => patch({ supportHookProjection: v })}
                   />
+                  {piece.design.tieLayers > 1 && (
+                    <p className="detail-tip">
+                      A projeção manual mede o eixo do gancho da primeira
+                      camada. As camadas seguintes ficam mais próximas da face
+                      do pilar.
+                    </p>
+                  )}
                   <NumericField
                     label="Ponta reta do gancho"
                     unit="cm"
@@ -392,10 +394,13 @@ function Detailing({
                 label="Penetração da costura"
                 unit="cm"
                 factor={10}
-                min={10}
                 value={piece.detailing.stitchEmbedment}
                 onChange={(v) => patch({ stitchEmbedment: v })}
               />
+              <p className="table-note">
+                Use 0 para dimensionar automaticamente. A penetração informada é
+                limitada pelo cobrimento do suporte.
+              </p>
               <div className="section-label section-spaced">
                 ARMADURAS COMPLEMENTARES
               </div>
