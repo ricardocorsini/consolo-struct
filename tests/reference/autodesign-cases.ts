@@ -23,17 +23,19 @@ export function beamHorizontalFixture(stitchDiameter = 6.3) {
   p.rebar.stitchDiameter = stitchDiameter;
   return p;
 }
-/** #64: loops do not physically nest in the 300 mm cantilevers (loopNesting). */
-const welded = (p: ReturnType<typeof cantileverFixture>) => {
-  p.design.frontAnchor = "welded";
+/** Keep the loop anchorage with enough width for both search implementations. */
+const withLoopClearance = (p: ReturnType<typeof cantileverFixture>) => {
+  p.geometry.width = 350;
   return p;
 };
 export const autodesignCases = {
   short: shortFixture,
-  beam: () => welded(cantileverFixture({ length: 700 })),
+  beam: () => withLoopClearance(cantileverFixture({ length: 700 })),
   beamHorizontalCompatible: () => beamHorizontalFixture(10),
   beamSkin: () =>
-    welded(cantileverFixture({ height: 700, loadOffset: 1000, length: 1200 })),
+    withLoopClearance(
+      cantileverFixture({ height: 700, loadOffset: 1000, length: 1200 }),
+    ),
   friction: () => {
     const p = shortFixture();
     p.geometry.loadOffset = 180;

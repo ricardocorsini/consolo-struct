@@ -13,23 +13,24 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 describe("CA1/CA6 — referência histórica e contratos", () => {
-  it.each(Object.entries(autodesignCases))(
-    "preserva peça e resultado anterior em %s",
-    (_, fixture) => {
-      const p = fixture(),
-        before = structuredClone(p);
-      const old = legacySuggestReinforcement(p),
-        result = suggestReinforcement(p);
-      expect(result.piece).toEqual(old.piece);
-      expect(result.result).toEqual(old.result);
-      expect(result.changed).toBe(old.changed);
-      expect(p).toEqual(before);
-      expect(result.result.fingerprint).toBe(fingerprint(result.piece));
-      expect(Object.keys(result).sort()).toEqual(
-        ["piece", "result", "changed", "message", "candidates"].sort(),
-      );
-    },
-  );
+  it.each(
+    Object.entries(autodesignCases).filter(
+      ([name]) => name !== "beamHorizontalCompatible",
+    ),
+  )("preserva peça e resultado anterior em %s", (_, fixture) => {
+    const p = fixture(),
+      before = structuredClone(p);
+    const old = legacySuggestReinforcement(p),
+      result = suggestReinforcement(p);
+    expect(result.piece).toEqual(old.piece);
+    expect(result.result).toEqual(old.result);
+    expect(result.changed).toBe(old.changed);
+    expect(p).toEqual(before);
+    expect(result.result.fingerprint).toBe(fingerprint(result.piece));
+    expect(Object.keys(result).sort()).toEqual(
+      ["piece", "result", "changed", "message", "candidates"].sort(),
+    );
+  });
   it("um arranjo já ótimo continua changed=false", () => {
     const input = legacySuggestReinforcement(shortFixture()).piece;
     expect(legacySuggestReinforcement(input).changed).toBe(false);
@@ -52,6 +53,17 @@ describe("CA1/CA6 — referência histórica e contratos", () => {
 });
 
 describe("CA2/CA3 — secundária por candidato e diagnóstico", () => {
+  it("recusa o antigo vencedor quando N2 e a ponta reta de N4 são insuficientes", () => {
+    const input = beamHorizontalFixture(10);
+    const old = legacySuggestReinforcement(input);
+    expect(old.changed).toBe(true);
+    for (const id of ["anchorN2", "anchorN4Tail"])
+      expect(old.result.checks.find((c) => c.id === id)?.status).toBe("fail");
+    const result = suggestReinforcement(input);
+    expect(result.changed).toBe(false);
+    expect(result.piece).toBe(input);
+    expect(result.message).toContain("N2 · ancoragem no suporte");
+  });
   it("recusa o antigo vencedor da combinação H que falhava em stitchClear", () => {
     const input = beamHorizontalFixture(),
       before = structuredClone(input);
@@ -152,9 +164,41 @@ describe("CA4/CA5 — parada e poda comparadas à varredura completa", () => {
     expect(result.candidates).toBe(assessed.size);
     expect(result.piece).toEqual(full.piece);
     expect(result.result).toEqual(full.result);
+    expect(
+      [...assessed].every(
+        (p) => p.design.weldedBarDiameter === p.rebar.tieDiameter,
+      ),
+    ).toBe(true);
     expect(result.piece.design.weldResistancePerBar).toBe(
       input.design.weldResistancePerBar,
     );
+  });
+  it("sincroniza a barra soldada e preserva os dados de qualificação no arranjo sugerido", () => {
+    const input = shortFixture();
+    Object.assign(input.design, {
+      frontAnchor: "welded",
+      supportAnchor: "hook",
+      weldResistancePerBar: 12345,
+      weldSpecification: "Especificação de teste da solda",
+    });
+    const before = structuredClone(input);
+    const proposed = suggestReinforcement(input);
+    expect(proposed.changed).toBe(true);
+    expect(proposed.piece.rebar.tieDiameter).not.toBe(input.rebar.tieDiameter);
+    expect(proposed.piece.design.weldedBarDiameter).toBe(
+      proposed.piece.rebar.tieDiameter,
+    );
+    expect(proposed.piece.design.weldResistancePerBar).toBe(12345);
+    expect(proposed.piece.design.weldSpecification).toBe(
+      before.design.weldSpecification,
+    );
+    expect(
+      proposed.result.checks.find((c) => c.id === "weldDiameter")?.status,
+    ).toBe("pass");
+    expect(
+      proposed.result.checks.find((c) => c.id === "weldForce")?.capacity,
+    ).toBe(12345);
+    expect(input).toEqual(before);
   });
   it.each(Object.entries(autodesignCases))(
     "é idêntica à referência exaustiva com secundária em %s",

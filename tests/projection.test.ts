@@ -3,10 +3,21 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as engine from "../src/domain/engine";
 import { decodeProject, exampleProject } from "../src/domain/model";
+import { beamTieBends } from "../src/detailing/beam";
 import { connectionGeometry, pinCenters } from "../src/detailing/connections";
+import { pieceDrawing } from "../src/detailing/drawing";
+import { entitySvg } from "../src/detailing/exports";
+import {
+  at,
+  mandrelDiameter,
+  pathLength,
+  pathLengthAfterX,
+} from "../src/detailing/geometry";
 import { buildDetail } from "../src/detailing/model";
+import { rebarModel } from "../src/detailing/rebarModel";
 import {
   elevationShapes,
+  elevationTieBars,
   elevationTiePaths,
   sectionBars,
 } from "../src/detailing/projection";
@@ -144,9 +155,10 @@ describe("Projeções de ligações integradas a N3/N4 (#39)", () => {
     },
   );
 
-  it("não calcula ELU nem altera entradas ao projetar a elevação", () => {
+  it("projeta a elevação a partir da geometria existente sem recalcular ELU", () => {
     const p = fixture(),
       before = JSON.stringify(p);
+    rebarModel(p);
     const calculate = vi.spyOn(engine, "calculate");
     try {
       elevationShapes(p);
@@ -190,15 +202,6 @@ describe("Sincronização de armaduras entre detalhamento, elevação e seção 
     expect(d.issues.some((i) => i.code === "nested-loops")).toBe(true);
   });
 
-  it("N1 na elevação inclui dobra de suporte quando supportAnchor = hook", () => {
-    const p = shortFixture();
-    p.design.supportAnchor = "hook";
-    const d = buildDetail(p);
-    const [pts] = elevationTiePaths(p, d);
-    expect(pts.length).toBeGreaterThan(2);
-    expect(pts.at(-1)!.y).toBeGreaterThan(pts[0].y);
-  });
-
   it("costuras na seção A–A incluem apenas barras que cruzam o plano x1", () => {
     const p = shortFixture();
     p.design.lowerStitchCount = 3;
@@ -234,4 +237,117 @@ describe("Sincronização de armaduras entre detalhamento, elevação e seção 
     const html = render(p, true);
     expect(html).toContain('data-testid="beam-positive-section"');
   });
+});
+
+describe("Gancho de N1 no suporte (#68)", () => {
+  it.each(["loop", "welded"] as const)(
+    "conserva o início, a dobra e a ponta da ancoragem %s na prancha",
+    (frontAnchor) => {
+      const p = shortFixture();
+      p.design.frontAnchor = frontAnchor;
+      p.design.tieLayers = 2;
+      p.design.supportAnchor = "hook";
+      p.detailing.supportHookProjection = 600.1234567;
+      p.detailing.supportHookTail = 128.1234567;
+      const detail = buildDetail(p);
+      const ties = elevationTieBars(p, detail);
+      const sampled = elevationTiePaths(p, detail);
+      const sheet = pieceDrawing(exampleProject(), detail).entities.filter(
+        (e) => e.layer === "ARMADURAS" && e.type !== "circle",
+      );
+      const radius =
+        (mandrelDiameter(p.rebar.tieDiameter, p.materials.fyk) +
+          p.rebar.tieDiameter) /
+        2;
+      const originX = p.geometry.columnWidth / 10 + 15;
+      const originY = 52;
+      const pitch = beamTieBends(p, 1).back - beamTieBends(p, 0).back;
+      expect(ties).toHaveLength(2);
+      let offset = 0;
+      for (const [i, { bar, path }] of ties.entries()) {
+        const run = path.segments[0];
+        const [bend, tail] = path.segments.slice(-2);
+        const [sheetRun, ...rest] = sheet.slice(
+          offset,
+          offset + path.segments.length,
+        );
+        offset += path.segments.length;
+        const [sheetBend, sheetTail] = rest.slice(-2);
+        if (
+          run.type !== "line" ||
+          bend.type !== "arc" ||
+          tail.type !== "line" ||
+          sheetRun.type !== "line" ||
+          sheetBend.type !== "arc" ||
+          sheetTail.type !== "line"
+        )
+          throw new Error("Percurso de N1 sem reta, arco e ponta reta");
+        expect(bend.radius).toBe(radius);
+        expect(bend.sweep).toBeCloseTo(-Math.PI / 2, 10);
+        expect(tail.a.x).toBeCloseTo(tail.b.x, 10);
+        expect(tail.b.x).toBeCloseTo(
+          -p.detailing.supportHookProjection + i * pitch,
+          8,
+        );
+        expect(tail.b.y - tail.a.y).toBeCloseTo(
+          p.detailing.supportHookTail,
+          10,
+        );
+        expect(sampled[i][0]).toEqual(run.a);
+        expect(sampled[i].at(-1)).toEqual(tail.b);
+        for (const [mm, cm] of [
+          [run.a, sheetRun.a],
+          [bend.center, sheetBend.center],
+          [tail.a, sheetTail.a],
+          [tail.b, sheetTail.b],
+        ]) {
+          expect((cm.x - originX) * 10).toBeCloseTo(mm.x, 7);
+          expect((cm.y - originY) * 10).toBeCloseTo(mm.y, 7);
+        }
+        const arcSvg = entitySvg(sheetBend).match(/d="([^"]+)"/)![1];
+        const [ax, ay, r, , , , , bx, by] = arcSvg
+          .match(/-?\d+(?:\.\d+)?/g)!
+          .map(Number);
+        const arcStart = at(bend.center, bend.radius, bend.start);
+        expect((ax - originX) * 10).toBeCloseTo(arcStart.x, 7);
+        expect((ay - originY) * 10).toBeCloseTo(arcStart.y, 7);
+        expect(r * 10).toBeCloseTo(bend.radius, 7);
+        expect((bx - originX) * 10).toBeCloseTo(tail.a.x, 7);
+        expect((by - originY) * 10).toBeCloseTo(tail.a.y, 7);
+        expect(bar.anchorage[0].projection).toBeCloseTo(-tail.b.x, 9);
+        expect(bar.anchorage[0].length).toBeCloseTo(
+          path.length - pathLengthAfterX(path, 0),
+          9,
+        );
+        for (const instance of bar.instances) {
+          const developed = instance.parts.reduce(
+            (length, part) => length + pathLength(part.path.segments),
+            0,
+          );
+          expect(bar.exactLength).toBeCloseTo(developed, 9);
+          expect(bar.cutLength).toBe(Math.ceil(developed));
+        }
+      }
+      const n1 = render(p).match(
+        /class="steel steel-N1[^>]*>[\s\S]*?<\/g>/,
+      )![0];
+      expect(n1.match(/A[\d.]+ [\d.]+ 0 0 0 /g)).toHaveLength(2);
+      expect(ties[0].bar.exactLength - ties[1].bar.exactLength).toBeCloseTo(
+        frontAnchor === "loop" ? 2 * pitch : pitch,
+        9,
+      );
+
+      p.design.supportAnchor = "straight";
+      const straight = elevationTieBars(p, buildDetail(p));
+      expect(straight).toHaveLength(2);
+      for (const { path } of straight) {
+        expect(path.segments).toMatchObject([{ type: "line" }]);
+        const [line] = path.segments;
+        if (line.type === "line") {
+          expect(line.a.y).toBe(line.b.y);
+          expect(line.b.x).toBe(-p.design.supportAnchorLength);
+        }
+      }
+    },
+  );
 });

@@ -47,12 +47,13 @@ const legs = (p: Piece, items: { bar: { family: string } }[]) =>
     : 1);
 
 describe("Paridade entre quantidade indicada e desenhada (#64)", () => {
-  it("CA1: peça padrão 4 Ø20 em alça com b = 30 cm mostra 4 ramos em todas as vistas e acusa a falha", () => {
+  it("CA1: 4 Ø20 em alça com b = 30 cm mostra 4 ramos em todas as vistas e acusa a falha", () => {
     const p = newPiece(1);
+    p.design.frontAnchor = "loop";
+    p.design.supportAnchor = "straight";
     expect(p.geometry.width).toBe(300);
     expect(p.rebar.tieCount).toBe(4);
     expect(p.rebar.tieDiameter).toBe(20);
-    expect(p.design.frontAnchor).toBe("loop");
     // Engine: the physical nesting fails explicitly.
     const nesting = calculate(p).checks.find((c) => c.id === "loopNesting");
     expect(nesting?.status).toBe("fail");
@@ -83,6 +84,34 @@ describe("Paridade entre quantidade indicada e desenhada (#64)", () => {
     expect(sheet).toContain("Tirante detalhado: 4 ramos Ø20,0 / 1 camada(s)");
     expect(sheet).toContain("1ª: 4 ramos detalhados;");
     expect(sheet).not.toContain("declarado(s)");
+  });
+
+  it("verifica o diâmetro da segunda camada e reavalia ao trocar o arranjo", () => {
+    const p = shortFixture();
+    p.rebar.tieCount = 8;
+    p.design.tieLayers = 2;
+    const before = calculate(p);
+    expect(before.checks.some(({ id }) => id === "loopNesting")).toBe(false);
+    p.detailing.secondLoopDiameter = 280;
+    const after = calculate(p);
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+    expect(after.checks).toContainEqual(
+      expect.objectContaining({
+        id: "loopNesting",
+        status: "fail",
+        demand: 296,
+      }),
+    );
+    expect(buildDetail(p).issues).toContainEqual(
+      expect.objectContaining({ code: "nested-loops", severity: "error" }),
+    );
+    p.detailing.barArrangement = "beam";
+    expect(calculate(p).checks.some(({ id }) => id === "loopNesting")).toBe(
+      false,
+    );
+    expect(
+      buildDetail(p).issues.some(({ code }) => code === "nested-loops"),
+    ).toBe(false);
   });
 
   it("CA2: a sugestão nunca entrega alças que geram nested-loops no detalhamento", () => {

@@ -25,6 +25,8 @@ O tema fica em **Configurações > Geral / Aparência**, além do acesso rápido
 
 Use **Novo projeto** e confirme nome, cliente e responsável em Dados do projeto. Cancelar mantém o projeto anterior. Use **Abrir** para carregar um projeto; o exemplo `examples/casos-validacao.lume.json` permite explorar o motor, e `examples/detalhamento/consolos-detalhados.lume.json` demonstra tirantes simples e duplos.
 
+Em **Novo projeto** e **Novo consolo**, N1 começa com uma barra transversal soldada de mesma bitola na ponta e um gancho de 90° para baixo no suporte. Em **Cálculo > Ancoragem na frente**, informe a resistência de cálculo por ramo e a qualificação da solda. O campo começa em zero. A alça horizontal continua disponível no seletor de ancoragem. Ao abrir um arquivo salvo, o programa usa a ancoragem registrada em cada peça.
+
 Novos arquivos usam `.consolo.json`; os antigos `.lume.json` continuam reconhecidos. O esquema atual é 6, com migração dos esquemas 1–5, preservando N3/N4, política γn e detalhamento. O aço secundário passa para Materiais. Arquivos com classes secundárias divergentes são rejeitados sem substituir o projeto aberto. Projetos antigos precisam da revisão dos parâmetros migrados antes de calcular. Salve com `Ctrl+S` (ou `Cmd+S` no macOS). Rascunhos do navegador e desktop são separados; transfira o arquivo de projeto para mudar de ambiente.
 
 ## 2. Conferir entradas

@@ -1,5 +1,9 @@
 import type { Piece } from "./model";
 
+/** Clear spacing of the tie layers and their nested vertical legs. */
+export const tieLayerSpacing = (p: Piece) =>
+  Math.max(20, p.rebar.tieDiameter, 0.5 * p.design.aggregate);
+
 /** Shared physical distribution: calculation and fabrication use the same bar axes. */
 export function upperStitchLayout(
   p: Piece,

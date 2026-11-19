@@ -23,6 +23,7 @@ import { drawingDxf, drawingSvg, steelCsv } from "../src/detailing/exports";
 import { mandrelDiameter } from "../src/detailing/geometry";
 import { toCalculationJson, toPdf } from "../src/lib/exports";
 import { shortFixture } from "./fixtures";
+import { legacyAnchorageContract } from "./reference/legacy-anchorage-contract";
 
 describe("Classes de aço e regras centralizadas", () => {
   it.each([
@@ -117,7 +118,9 @@ describe("Regressão de aderência/ancoragem e snapshot no esquema 6 — classes
       expect(result.values.anchorRequired).toBe(lbNec);
       expect(result.checks.find((c) => c.id === "loopPin")?.demand).toBe(pin);
       expect(
-        createHash("sha256").update(JSON.stringify(result)).digest("hex"),
+        createHash("sha256")
+          .update(JSON.stringify(legacyAnchorageContract(result)))
+          .digest("hex"),
       ).toBe(hash);
     },
   );

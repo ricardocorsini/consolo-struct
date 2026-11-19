@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { exampleProject, newPiece, type Piece } from "../../src/domain/model";
 import { shortFixture } from "../fixtures";
+import { calculate } from "../../src/domain/engine";
 
 async function seed(page: Page, p: Piece) {
   await page.addInitScript(
@@ -89,21 +90,20 @@ test("elevação conserva o gancho de suporte e a penetração das costuras", as
 }, info) => {
   const p = shortFixture();
   p.design.supportAnchor = "hook";
+  const { values } = calculate(p);
   await seed(page, p);
   const tie = page.locator(".steel-N1 path").first();
-  const coords = (await tie.getAttribute("d"))!
-    .match(/-?\d+(?:\.\d+)?/g)!
-    .map(Number);
-  const scale = Math.min(480 / 1350, 340 / 580);
-  const ys = coords.filter((_, i) => i % 2 === 1);
-  expect(Math.max(...ys)).toBeGreaterThan(
-    ys[0] + p.detailing.supportHookTail * scale,
+  await expect(tie).toHaveAttribute("d", /A/);
+  const height = await tie.evaluate(
+    (path) => (path as SVGPathElement).getBBox().height,
   );
+  const scale = Math.min(480 / 1350, 340 / 580);
+  expect(height).toBeGreaterThan(values.anchorN1_tail * scale);
   const stitch = page.locator(".steel-N2 path").first();
   const start = Number(
     (await stitch.getAttribute("d"))!.match(/^M(-?[\d.]+)/)![1],
   );
-  expect(start).toBeCloseTo(480 - p.detailing.stitchEmbedment * scale, 8);
+  expect(start).toBeCloseTo(480 - values.anchorN2_adopted * scale, 8);
   await page.screenshot({
     path: info.outputPath("gancho-suporte-costuras.png"),
   });

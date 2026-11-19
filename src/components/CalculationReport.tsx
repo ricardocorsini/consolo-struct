@@ -9,6 +9,11 @@ import { number } from "../domain/model";
 import { memo } from "react";
 import LazyDetails from "./LazyDetails";
 import { gammaNDecisionText, gammaNPolicyLabels } from "../domain/gammaN";
+import {
+  anchorageFields,
+  anchorageLabels,
+  anchorageRows as familyAnchorageRows,
+} from "../domain/anchorage";
 export const resultLabels: Record<CalculationResult["status"], string> = {
   pass: "Atende às verificações implementadas",
   fail: "Há verificações não atendidas",
@@ -43,6 +48,60 @@ const anchorageRows = (
   ],
   ["Ancoragem necessária", v.anchorRequired, "mm"],
 ];
+function FamilyAnchorage({ values }: { values: CaseResult["values"] }) {
+  const rows = familyAnchorageRows(values);
+  if (!rows.length) return null;
+  return (
+    <section className="calculation-table-wrap" data-testid="family-anchorage">
+      <h3>Ancoragem por família de armadura</h3>
+      <table className="calculation-table">
+        <thead>
+          <tr>
+            <th>Família e parâmetros</th>
+            <th>Mínimo</th>
+            <th>Disponível</th>
+            <th>Limite nominal</th>
+            <th>Limite no eixo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.family}>
+              <td>
+                <LazyDetails title={row.family}>
+                  {() => (
+                    <dl>
+                      {anchorageFields.map((field) => {
+                        const value = row[field];
+                        if (value === undefined) return null;
+                        const [label, unit] = anchorageLabels[field];
+                        return (
+                          <div key={field}>
+                            <dt>{label}</dt>
+                            <dd>
+                              {number(value, 3)} {unit}
+                            </dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                  )}
+                </LazyDetails>
+              </td>
+              {[row.required, row.available, row.nominal, row.axis].map(
+                (value, i) => (
+                  <td key={i}>
+                    {value === undefined ? "—" : `${number(value, 3)} mm`}
+                  </td>
+                ),
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
 function BeamMemory({ c }: { c: CaseResult }) {
   const v = c.values;
   const rows: [string, number | undefined, string][] = [
@@ -236,6 +295,7 @@ function CalculationReport({
       <Checks checks={result.checks} />
       {!compact && (
         <>
+          <FamilyAnchorage values={v} />
           <h3>Combinações e memória numérica</h3>
           <p>
             Envelope por verificação. Combinação determinante da área do
@@ -257,6 +317,7 @@ function CalculationReport({
                 c.method === "beam" ? (
                   <>
                     <BeamMemory c={c} />
+                    <FamilyAnchorage values={c.values} />
                     <Checks checks={c.checks} />
                   </>
                 ) : (
@@ -422,6 +483,7 @@ function CalculationReport({
                       o método identificado acima e seus critérios de envelope
                       definem esta combinação.
                     </p>
+                    <FamilyAnchorage values={c.values} />
                     <Checks checks={c.checks} />
                   </>
                 )

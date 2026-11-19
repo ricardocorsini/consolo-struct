@@ -152,6 +152,8 @@ describe("N3G — bloqueios de fabricação e seção A–A", () => {
   it("#64: alças que não cabem não são descartadas; N3G segue os ramos desenhados", () => {
     const p = newPiece(1);
     p.rebar.stirrupBranches = 4;
+    p.design.frontAnchor = "loop";
+    p.design.supportAnchor = "straight";
     expect(firstLayerTiePositions(p)).toHaveLength(4);
     const detail = buildDetail(p);
     expect(detail.issues).toContainEqual(
@@ -164,46 +166,40 @@ describe("N3G — bloqueios de fabricação e seção A–A", () => {
     expect(detail.issues.some((i) => i.code.startsWith("parity-"))).toBe(false);
   });
 
-  it.each(["camada com três barras"])(
-    "não inventa N3G quando faltam N1 centrais: %s",
-    (scenario) => {
-      const p = newPiece(1);
-      p.rebar.stirrupBranches = 4;
-      if (scenario === "camada com três barras") {
-        p.design.frontAnchor = "welded";
-        p.rebar.tieCount = 3;
-      }
-      const before = structuredClone(p),
-        result = calculate(p);
-      expect(firstLayerTiePositions(p).length).toBeLessThan(4);
-      const t = transverseGeometry(p),
-        detail = buildDetail(p),
-        scene = buildSceneModel(p);
-      expect(detail.issues).toContainEqual(
-        expect.objectContaining({
-          code: "transverse-inner-tie",
-          severity: "error",
-        }),
-      );
-      expect(t.sections.filter((s) => s.internal)).toEqual([]);
-      expect(t.sections.map((s) => s.x)).toEqual(stirrupLayout(p).positions);
-      expect(detail.bars.filter((b) => b.family === "stirrupInner")).toEqual(
-        [],
-      );
-      expect(
-        detail.bars.find((b) => b.family === "constructive")!.quantity,
-      ).toBe(2);
-      expect(scene.steel.filter((b) => b.id === "N3")).toHaveLength(
-        p.rebar.stirrupCount,
-      );
-      expect(scene.steel.filter((b) => b.id === "N4")).toHaveLength(2);
-      expect(steelCsv([detail])).not.toContain('"N3G-');
-      const section = renderSection(p);
-      expect(section).not.toContain('data-n3-part="grampo"');
-      expect(section).not.toContain("projeção do par");
-      expect(section).toContain("Arranjo N3/N3G inválido para fabricação");
-      expect(p).toEqual(before);
-      expect(calculate(p)).toEqual(result);
-    },
-  );
+  it("não inventa N3G quando faltam N1 centrais na camada com três barras", () => {
+    const p = newPiece(1);
+    p.rebar.stirrupBranches = 4;
+    p.design.frontAnchor = "welded";
+    p.design.supportAnchor = "straight";
+    p.rebar.tieCount = 3;
+    const before = structuredClone(p),
+      result = calculate(p);
+    expect(firstLayerTiePositions(p).length).toBeLessThan(4);
+    const t = transverseGeometry(p),
+      detail = buildDetail(p),
+      scene = buildSceneModel(p);
+    expect(detail.issues).toContainEqual(
+      expect.objectContaining({
+        code: "transverse-inner-tie",
+        severity: "error",
+      }),
+    );
+    expect(t.sections.filter((s) => s.internal)).toEqual([]);
+    expect(t.sections.map((s) => s.x)).toEqual(stirrupLayout(p).positions);
+    expect(detail.bars.filter((b) => b.family === "stirrupInner")).toEqual([]);
+    expect(detail.bars.find((b) => b.family === "constructive")!.quantity).toBe(
+      2,
+    );
+    expect(scene.steel.filter((b) => b.id === "N3")).toHaveLength(
+      p.rebar.stirrupCount,
+    );
+    expect(scene.steel.filter((b) => b.id === "N4")).toHaveLength(2);
+    expect(steelCsv([detail])).not.toContain('"N3G-');
+    const section = renderSection(p);
+    expect(section).not.toContain('data-n3-part="grampo"');
+    expect(section).not.toContain("projeção do par");
+    expect(section).toContain("Arranjo N3/N3G inválido para fabricação");
+    expect(p).toEqual(before);
+    expect(calculate(p)).toEqual(result);
+  });
 });

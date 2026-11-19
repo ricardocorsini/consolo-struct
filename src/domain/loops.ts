@@ -3,7 +3,7 @@ import { geometricPinFactor } from "./steel";
 
 /** Physical nesting of the horizontal tie loops of one layer, in mm (issue #64).
  *
- * Shared by the engine (`loopWidth`), the automatic search and the detailing,
+ * Shared by the engine (`loopNesting`), the automatic search and the detailing,
  * so a layer is approved, suggested and drawn with the same widths. A layer
  * with `count` legs holds `floor(count / 2)` concentric loops. The outer loop
  * runs inside the stirrup legs; the inner ones are nested with the minimum

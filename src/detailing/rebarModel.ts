@@ -32,9 +32,8 @@ export type RebarSource = Pick<RebarGeometry, "piece" | "bars" | "arrangement">;
 const cache = new Map<string, RebarModel>();
 const CACHE_SIZE = 24;
 
-/** Pure geometry model of one piece, memoized by its complete content.
- * Any edited input changes the key, so a stale model is never reused. It does
- * not run the ELU engine, except for the beam arrangement (anchored bends). */
+/** Geometry of one piece, memoized by complete content. Views share the
+ * effective anchorages and can reuse values from an existing calculation. */
 export function rebarModel(
   p: Piece,
   currentValues?: Record<string, number>,

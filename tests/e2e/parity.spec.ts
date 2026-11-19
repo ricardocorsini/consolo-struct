@@ -4,16 +4,23 @@ import { sectionBars } from "../../src/detailing/projection";
 import { exampleProject } from "../../src/domain/model";
 import { stirrupLayout } from "../../src/domain/theory";
 
-// Issue #64: the initial project (C01: b = 30 cm, 4 Ø20, one layer, loops).
-test("peça inicial: Seção A–A, prancha e relação do aço mostram os mesmos 4 ramos de N1", async ({
+// Issue #64: C01 with the original loop anchorage, before the default in #67.
+test("C01 com alças: Seção A–A, prancha e relação do aço mostram os mesmos 4 ramos de N1", async ({
   page,
 }) => {
-  const piece = exampleProject().pieces[0];
+  const project = exampleProject();
+  const piece = project.pieces[0];
+  piece.design.frontAnchor = "loop";
+  piece.design.supportAnchor = "straight";
   expect(piece.geometry.width).toBe(300);
   expect(piece.rebar.tieCount).toBe(4);
   const detail = buildDetail(piece);
   const x1 = stirrupLayout(piece).positions[0];
   expect(sectionBars(piece, detail, x1).ties).toHaveLength(4);
+  await page.addInitScript(
+    (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+    JSON.stringify(project),
+  );
   await page.goto("/");
   await page
     .locator(".document-tabs")

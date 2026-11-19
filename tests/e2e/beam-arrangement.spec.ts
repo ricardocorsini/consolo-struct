@@ -66,6 +66,13 @@ test("Configurações > Detalhamento liga o modo viga, desenha as barras e salva
     "true",
   );
   await expect(page.getByTestId("beam-positive")).toBeAttached();
+  for (const bar of [
+    page.locator(".steel-N1 path").first(),
+    page.getByTestId("beam-positive").locator("path").first(),
+  ]) {
+    await expect(bar).toHaveAttribute("d", /A[^A]+A/);
+    await expect(bar).toHaveCSS("stroke-linecap", "butt");
+  }
 
   await page
     .locator(".document-tabs")
