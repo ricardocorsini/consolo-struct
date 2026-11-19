@@ -7,6 +7,7 @@ import {
   type Layer,
 } from "./drawing";
 import { at, type Point } from "./geometry";
+import { drawingWidth, pdfText } from "./layout";
 import { steelLabel } from "../domain/steel";
 import { gammaNDecision, gammaNPolicyLabels } from "../domain/gammaN";
 
@@ -27,8 +28,6 @@ const n = (v: number) => Number(v.toFixed(5));
 const coordinate = (v: number) => Number(v.toFixed(9));
 const barWidth = (e: Entity) =>
   e.type === "line" || e.type === "arc" ? e.thickness : undefined;
-const drawingWidth = (e: Entity) =>
-  barWidth(e) ?? (e.layer === "FORMAS" ? 0.25 : 0.13);
 export function entitySvg(e: Entity): string {
   const thickness = barWidth(e);
   const schematic = (e.type === "line" || e.type === "arc") && e.schematic;
@@ -143,6 +142,24 @@ export function drawingDxf(drawing: Drawing): string {
     pair(370, layer === "ARMADURAS" ? 0 : layer === "FORMAS" ? 25 : 13);
   }
   pair(0, "ENDTAB");
+  pair(0, "TABLE");
+  pair(2, "STYLE");
+  pair(5, "12");
+  pair(100, "AcDbSymbolTable");
+  pair(70, 1);
+  pair(0, "STYLE");
+  pair(100, "AcDbSymbolTableRecord");
+  pair(100, "AcDbTextStyleTableRecord");
+  pair(2, "Standard");
+  pair(70, 0);
+  pair(40, 0);
+  pair(41, 1);
+  pair(50, 0);
+  pair(71, 0);
+  pair(42, 2.5);
+  pair(3, "arial.ttf");
+  pair(4, "");
+  pair(0, "ENDTAB");
   pair(0, "ENDSEC");
   pair(0, "SECTION");
   pair(2, "ENTITIES");
@@ -202,7 +219,8 @@ export function drawingDxf(drawing: Drawing): string {
       pair(10, e.at.x);
       pair(20, -e.at.y);
       pair(30, 0);
-      pair(40, e.size);
+      // DXF TEXT measures uppercase height. SVG and PDF size the full em.
+      pair(40, e.size * 0.718);
       pair(1, text(e.text));
       pair(50, -(e.rotate ?? 0));
       pair(7, "Standard");
@@ -220,14 +238,6 @@ export function drawingDxf(drawing: Drawing): string {
   pair(0, "EOF");
   return parts.join("\n") + "\n";
 }
-const pdfText = (s: string) =>
-  s
-    .replace(/[–—−]/g, "-")
-    .replace(/≥/g, ">=")
-    .replace(/Ø/g, "Ø")
-    .replace(/γ/g, "gamma")
-    .replace(/φ/g, "phi")
-    .replace(/·/g, " - ");
 export async function drawingPdf(drawings: Drawing[]): Promise<Uint8Array> {
   const { jsPDF } = await import("jspdf");
   const { pdfIcon } = await import("../branding/pdfIcon");

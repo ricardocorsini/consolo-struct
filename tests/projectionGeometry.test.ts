@@ -1,3 +1,4 @@
+import { sheetOrigins } from "./sheetOrigins";
 import { describe, expect, it } from "vitest";
 import { exampleProject, newPiece } from "../src/domain/model";
 import { buildDetail } from "../src/detailing/model";
@@ -119,12 +120,7 @@ describe("Projeções dos percursos físicos — revisão #58", () => {
     const p = shortBeam(),
       d = buildDetail(p);
     const drawing = pieceDrawing({ ...exampleProject(), pieces: [p] }, d);
-    const title = drawing.entities.find(
-      (e) => e.type === "text" && e.text.startsWith("CORTE A-A /"),
-    );
-    expect(title?.type).toBe("text");
-    if (title?.type !== "text") throw new Error("Corte ausente");
-    const origin = { x: title.at.x, y: title.at.y + 8 };
+    const origin = sheetOrigins(drawing, p.geometry).sectionA;
     for (const [family, depth, quantity] of [
       ["tie", 131.3 - Math.sqrt(90 ** 2 - 65 ** 2), 4],
       ["positive", 311.5083333333333 + Math.sqrt(30 ** 2 - 20 ** 2), 2],

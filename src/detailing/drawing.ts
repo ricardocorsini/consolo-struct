@@ -1,11 +1,16 @@
 import type { Project } from "../domain/model";
 import { number } from "../domain/model";
+import { dimensionLabel, elevationDimensions } from "../domain/dimensions";
+import { at, type BarPath, type Point, type Segment } from "./geometry";
+import type { ViewShape } from "./rebarPlacement";
 import {
-  dimensionLabel,
-  elevationDimensions,
-  type ElevationDimension,
-} from "../domain/dimensions";
-import type { BarPath, Point, Segment } from "./geometry";
+  AnnotationLayout,
+  drawingBounds,
+  textPitch,
+  textWidth,
+  translateEntity,
+  wrapText,
+} from "./layout";
 import { type Bar, type Detail } from "./model";
 import { reactionGeometry, stirrupLayout } from "../domain/theory";
 import { elevationTieBars, sectionBars } from "./projection";
@@ -34,6 +39,7 @@ export type Entity =
       dash?: boolean;
       thickness?: number;
       schematic?: string;
+      annotation?: "dimension" | "extension" | "leader";
     })
   | {
       type: "circle";
@@ -78,7 +84,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     r = p.rebar,
     q = p.design,
     s = p.detailing;
-  const entities: Entity[] = [];
+  let entities: Entity[] = [];
   // Every count printed on the sheet is the detailed one (#64).
   const declared = declaredCounts(d),
     placed = placedCounts(d);
@@ -221,98 +227,60 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
       barCircle(center.x, center.y, diameter * scale, true);
     }
   };
-  const dim = (
-    x: number,
-    y: number,
-    x2: number,
-    y2: number,
-    offset: number,
-    label: string,
-    vertical = Math.abs(x2 - x) < 1e-6,
-  ) => {
-    if (!vertical) {
-      line(
-        x,
-        y + Math.sign(offset),
-        x,
-        y + offset + Math.sign(offset) * 2,
-        "COTAS",
-      );
-      line(
-        x2,
-        y2 + Math.sign(offset),
-        x2,
-        y + offset + Math.sign(offset) * 2,
-        "COTAS",
-      );
-      line(x, y + offset, x2, y + offset, "COTAS");
-      for (const xx of [x, x2])
-        line(xx - 1.2, y + offset + 1.2, xx + 1.2, y + offset - 1.2, "COTAS");
-      text((x + x2) / 2, y + offset - 1.5, label, 2.2, "COTAS", "middle");
-    } else {
-      line(
-        x + Math.sign(offset),
-        y,
-        x + offset + Math.sign(offset) * 2,
-        y,
-        "COTAS",
-      );
-      line(
-        x2 + Math.sign(offset),
-        y2,
-        x + offset + Math.sign(offset) * 2,
-        y2,
-        "COTAS",
-      );
-      line(x + offset, y, x + offset, y2, "COTAS");
-      for (const yy of [y, y2])
-        line(x + offset - 1.2, yy + 1.2, x + offset + 1.2, yy - 1.2, "COTAS");
-      text(x + offset - 1.5, (y + y2) / 2, label, 2.2, "COTAS", "middle", -90);
+  type Row = [value: string, size?: number, layer?: Layer];
+  const textRows = (x: number, top: number, rows: Row[]) => {
+    for (const [value, size = 2.1, layer = "TEXTOS"] of rows) {
+      text(x, top + size * 1.12 + 0.25, value, size, layer);
+      top += textPitch(size) + 0.7;
     }
+    return top;
   };
-  const leader = (
-    x: number,
-    y: number,
-    tx: number,
-    ty: number,
-    label: string,
+  const viewBlock = (
+    layout: AnnotationLayout,
+    captionX: number,
+    above: Row[],
+    below: Row[] = [],
   ) => {
-    line(x, y, tx - 3, ty - 1, "COTAS");
-    line(tx - 3, ty - 1, tx + 2, ty - 1, "COTAS");
-    text(tx + 3, ty, label, 2.1);
+    layout.finish();
+    const geometry = drawingBounds(entities);
+    const captionHeight = above.reduce(
+      (h, [, size = 2.1]) => h + textPitch(size) + 0.7,
+      0,
+    );
+    textRows(captionX, geometry.top - captionHeight - 3, above);
+    textRows(captionX, geometry.bottom + 3, below);
+    const block = { entities, bounds: drawingBounds(entities) };
+    entities = [];
+    return block;
   };
-  const wrap = (value: string, width = 100) => {
-    const result: string[] = [];
-    for (const paragraph of value.split(/\r?\n/)) {
-      let chunk = "";
-      for (const word of paragraph.split(/\s+/)) {
-        if (chunk.length + word.length + 1 > width) {
-          result.push(chunk);
-          chunk = "";
-        }
-        chunk += `${chunk ? " " : ""}${word}`;
-      }
-      if (chunk) result.push(chunk);
-    }
-    return result;
+  const shapeAnchor = (shape: ViewShape): Point | undefined => {
+    if (shape.kind === "point") return shape.center;
+    const segment =
+      shape.path.segments.find((part) => part.type === "line") ??
+      shape.path.segments[0];
+    if (!segment) return;
+    if (segment.type === "arc")
+      return at(
+        segment.center,
+        segment.radius,
+        segment.start + segment.sweep / 2,
+      );
+    return {
+      x: (segment.a.x + segment.b.x) / 2,
+      y: (segment.a.y + segment.b.y) / 2,
+    };
   };
   const P = g.columnWidth / 10,
     L = g.length / 10,
     H = g.height / 10,
     B = g.width / 10;
   const bearingHeight = Math.max(q.bearingHeight / 10, 1);
-  const pinProjection = d.bars.some((bar) => bar.family === "pin")
-    ? s.pinProjection / 10
-    : 0;
-  const x = P + 15,
-    y = 52 + Math.max(pinProjection, bearingHeight - 6, 0),
-    sectionX = x + L + 46;
-  const viewRight = sectionX + B + 50;
+  // Each view starts in local sheet coordinates. Placement only translates it.
+  const x = P,
+    y = 0,
+    sectionX = 0,
+    planY = 0;
   const schematicWidth = 150;
-  const steelColumns = [15, 16, 19, 20, 22, 35, 47, 31, schematicWidth];
-  const tableX = viewRight + 10;
-  const tableW = steelColumns.reduce((sum, column) => sum + column, 0);
-  const tableGap = 12;
   const steelHeader = [
     "Pos.",
     "Aço",
@@ -349,43 +317,9 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     schedules.at(-1)!.push(row);
     scheduleHeight += height;
   }
-  const width = Math.max(540, tableX + schedules.length * (tableW + tableGap));
   const detailedTieLayers = d.tieRows.filter(
     (row) => row.detailedCount > 0,
   ).length;
-  text(10, 8, `${p.name}  |  DETALHAMENTO DO CONSOLO`, 3.5);
-  text(
-    width - 10,
-    8,
-    `${s.revision || "R00"}  ·  ${p.quantity} PEÇA(S)`,
-    2.8,
-    "TEXTOS",
-    "end",
-  );
-  text(10, 14, `${project.name} · ${p.description}`.slice(0, 160), 2.5);
-  text(width - 10, 14, "ConsoloStruct · OPENSTRUCT", 2.3, "TEXTOS", "end");
-  text(
-    10,
-    20,
-    `fck ${number(p.materials.fck, 0)} MPa · Tirante ${grade(p.materials.fyk)} · Transversal ${grade(p.materials.fykTransverse)} · Cobrimento ${cm(g.cover)} cm · Cotas em cm / bitolas em mm`,
-    2.3,
-  );
-  text(
-    10,
-    26,
-    `Tirante: ${placed.tie} ramos detalhados em ${detailedTieLayers} camada(s)${detailedTieLayers === 2 ? " · TIRANTE DUPLO" : ""}${placed.tie !== declared.tie ? ` (${countText(placed.tie, declared.tie)})` : ""} · V${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.vertical / 1000, 1)} kN · H${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.horizontal / 1000, 1)} kN · a_calc=${cm(reactionGeometry(p).a)} cm`,
-    2.3,
-  );
-  text(
-    10,
-    32,
-    d.issues.some((i) => i.severity === "error")
-      ? "PENDÊNCIAS IMPEDITIVAS - CORRIGIR ANTES DA EXECUÇÃO"
-      : "PARA CONFERÊNCIA DO RESPONSÁVEL TÉCNICO",
-    2.5,
-    "ALERTAS",
-  );
-  line(10, 36, width - 10, 36, "COTAS");
   // Elevation. The column is deliberately shown as a local fragment, with break marks.
   poly([
     { x: x - P, y: y - 4 },
@@ -462,47 +396,17 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     x,
     y,
   );
+  const elevationLayout = new AnnotationLayout(entities);
+  for (const { from, to, placement, id, value } of elevationDimensions(g))
+    elevationLayout.dimension(
+      { x: x + from.x / 10, y: y + from.depth / 10 },
+      { x: x + to.x / 10, y: y + to.depth / 10 },
+      dimensionLabel(id, value),
+      placement === "inner" || placement === "outer" ? "right" : placement,
+    );
   const pin = elevation.find(({ bar }) => bar.family === "pin");
   const pinTop =
     pin?.shape.kind === "path" ? pin.shape.path.segments[0] : undefined;
-  if (pin && pinTop?.type === "line")
-    leader(
-      x + pinTop.a.x / 10,
-      y + pinTop.a.y / 10,
-      x + L + 4,
-      y - 10,
-      `${pin.bar.quantity} ${pin.bar.mark} (pinos)`,
-    );
-  const measurements = elevationDimensions(g);
-  const drop =
-    measurements.find((d) => d.id === "heightDifference")?.value ?? 0;
-  const separateDrop = drop > 0 && Math.min(drop, g.tipHeight) < 100;
-  const topDimensionY = Math.min(
-    y - 10,
-    y - Math.max(bearingHeight, pinProjection) - 4,
-  );
-  const dimensionAxes: Record<ElevationDimension["id"], number> = {
-    columnWidth: topDimensionY,
-    loadOffset: topDimensionY,
-    length: y + Math.max(H, g.tipHeight / 10) + 12,
-    tipHeight: x + L + 10,
-    heightDifference: x + L + (separateDrop ? 18 : 10),
-    height: x + L + (separateDrop ? 28 : 20),
-  };
-  for (const { id, from, to, placement, value } of measurements) {
-    const vertical = placement === "inner" || placement === "outer";
-    const firstX = x + from.x / 10;
-    const firstY = y + from.depth / 10;
-    dim(
-      firstX,
-      firstY,
-      x + to.x / 10,
-      y + to.depth / 10,
-      dimensionAxes[id] - (vertical ? firstX : firstY),
-      dimensionLabel(id, value),
-      vertical,
-    );
-  }
   const tieBars = d.bars.filter((b) => b.family === "tie");
   const stitchBars = d.bars.filter(
     (b) => b.family === "stitch" || b.family === "lower",
@@ -518,27 +422,34 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         ? bs[0].mark
         : `${bs[0].mark} a ${bs.at(-1)!.mark}`
       : "--";
-  leader(
-    x + L * 0.55,
-    y + d.tieRows[0].y / 10,
-    x + L + 5,
-    y + H + 15,
-    `Tirante ${marks(tieBars)}`,
-  );
-  text(x - P, y + H + 24, "ELEVAÇÃO LATERAL - ARMADURAS", 2.8);
-  text(
-    x - P,
-    y + H + 29,
-    `Costura ${marks(stitchBars)} · N3: ${countText(n3Branches, r.stirrupBranches ?? 2)} ramos/posição (${marks(verticalBars)}) · Construtiva ${marks(constructiveBars)}${positiveBars.length ? ` · Positiva ${marks(positiveBars)}` : ""}`,
-    2.2,
-  );
+  if (pin && pinTop?.type === "line") {
+    const top = pinTop.a.y < pinTop.b.y ? pinTop.a : pinTop.b;
+    elevationLayout.leader(
+      { x: x + top.x / 10, y: y + top.y / 10 },
+      `${pin.bar.quantity} ${pin.bar.mark} (pinos)`,
+    );
+  }
+  const projected = projectedTies[0];
+  const tieAnchor =
+    projected && shapeAnchor({ kind: "path", path: projected.path });
+  if (tieAnchor)
+    elevationLayout.leader(
+      { x: x + tieAnchor.x / 10, y: y + tieAnchor.y / 10 },
+      `Tirante ${marks(tieBars)}`,
+    );
+  const elevationRows: Row[] = [
+    ["ELEVAÇÃO LATERAL - ARMADURAS", 2.8],
+    [
+      `Costura ${marks(stitchBars)} · N3: ${countText(n3Branches, r.stirrupBranches ?? 2)} ramos/posição (${marks(verticalBars)}) · Construtiva ${marks(constructiveBars)}${positiveBars.length ? ` · Positiva ${marks(positiveBars)}` : ""}`,
+      2.2,
+    ],
+  ];
   if (beam)
-    text(
-      x - P,
-      y + H + 34,
+    elevationRows.push([
       "ARMADO COMO VIGA: tirante e positiva com dobras nas duas extremidades.",
       2.2,
-    );
+    ]);
+  const elevationBlock = viewBlock(elevationLayout, x - P, [], elevationRows);
   // The first scheduled outer stirrup defines the cut, even if its shape is invalid.
   const cutDepth = stirrupLayout(p).positions[0];
   const sectionDepth = bottomDepth(concrete, cutDepth);
@@ -575,61 +486,48 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   const sectionRebar = sectionBars(p, d, cutDepth, {
     pairWindow: r.stirrupDiameter,
   });
-  const cutHeadroom = Math.max(
-    0,
-    ...sectionRebar.lines.map((bar) => -bar.a.y / 10),
-  );
-  text(sectionX, y - cutHeadroom - 8, `CORTE A-A / x=${cm(cutDepth)} cm`, 2.8);
   rect(sectionX, y, B, sectionH);
   const innerSection = sectionRebar.stirrups.find(
     (bar) => bar.family === "stirrupInner",
   );
+  drawSection(sectionRebar, sectionX, y);
+  const sectionLayout = new AnnotationLayout(entities);
+  sectionLayout.dimension(
+    { x: sectionX, y: y + sectionH },
+    { x: sectionX + B, y: y + sectionH },
+    dimensionLabel("width", g.width),
+    "bottom",
+  );
+  sectionLayout.dimension(
+    { x: sectionX + B, y },
+    { x: sectionX + B, y: y + sectionH },
+    dimensionLabel("sectionHeight", sectionDepth),
+    "right",
+  );
+  const sectionTitles: Row[] = [[`CORTE A-A / x=${cm(cutDepth)} cm`, 2.8]];
   if (innerSection)
-    text(
-      sectionX,
-      y - cutHeadroom - 4,
+    sectionTitles.push([
       `N3G projetado de x=${cm(innerSection.x)} cm; N4 no plano de cada ramo`,
       1.8,
-    );
-  drawSection(sectionRebar, sectionX, y);
-  dim(
-    sectionX,
-    y + sectionH,
-    sectionX + B,
-    y + sectionH,
-    8,
-    dimensionLabel("width", g.width),
-  );
-  dim(
-    sectionX + B,
-    y,
-    sectionX + B,
-    y + sectionH,
-    10,
-    dimensionLabel("sectionHeight", sectionDepth),
-  );
-  text(
-    sectionX,
-    y + H + 18,
-    `Tirante detalhado: ${qty("tie")} ramos Ø${number(r.tieDiameter, 1)} / ${detailedTieLayers} camada(s)`,
-    2.1,
-  );
-  d.tieRows
-    .filter((row) => row.count)
-    .forEach((row, i) =>
-      text(
-        sectionX,
-        y + H + 23 + i * 4,
-        `${i + 1}ª: ${countText(row.detailedCount, row.count)} ramos detalhados; eixo a ${cm(row.y)} do topo (${tieBars
-          .filter((b) => b.locations.some((loc) => loc.layer === i))
-          .map((b) => b.mark)
-          .join("/")})`,
-        2.1,
-      ),
-    );
+    ]);
+  const sectionBlock = viewBlock(sectionLayout, sectionX, sectionTitles, [
+    [
+      `Tirante detalhado: ${qty("tie")} ramos Ø${number(r.tieDiameter, 1)} / ${detailedTieLayers} camada(s)`,
+    ],
+    ...d.tieRows.flatMap((row, i): Row[] =>
+      row.count
+        ? [
+            [
+              `${i + 1}ª: ${countText(row.detailedCount, row.count)} ramos detalhados; eixo a ${cm(row.y)} do topo (${tieBars
+                .filter((bar) => bar.locations.some((loc) => loc.layer === i))
+                .map((bar) => bar.mark)
+                .join("/")})`,
+            ],
+          ]
+        : [],
+    ),
+  ]);
   // Plan with actual frontal loops and placement lines for the vertical stirrups.
-  const planY = y + H + Math.max(55, q.tieLayers * 5 + 40);
-  text(x - P, planY - 10, "PLANTA DAS ARMADURAS / TIRANTES", 2.8);
   rect(x - P, planY, P, B);
   rect(x, planY, L, B);
   rect(
@@ -660,28 +558,49 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     x,
     planY,
   );
-  for (const b of tieBars)
-    for (const loc of b.locations)
-      if ((loc.layer ?? 0) > 0)
-        leader(
-          x + L * 0.7,
-          planY + B / 2,
-          x + L + 3,
-          planY + B + 12 + (loc.layer ?? 0) * 5,
-          `${b.mark} - ${loc.layer! + 1}ª camada`,
-        );
-  const cutX = x + cutDepth / 10;
-  line(cutX, planY - 5, cutX, planY + B + 5, "EIXOS", true);
-  text(cutX - 2, planY - 6, "A", 2.7);
-  text(cutX - 2, planY + B + 10, "A", 2.7);
-  dim(x, planY + B, x + L, planY + B, 8, dimensionLabel("length", g.length));
-  dim(x + L, planY, x + L, planY + B, 10, dimensionLabel("width", g.width));
-  text(
-    x - P,
-    planY + B + 23,
-    `Apoio: ${cm(q.bearingLength)} × ${cm(q.bearingWidth)} × ${cm(q.bearingHeight)} cm`,
-    2.2,
+  const planForm = drawingBounds(entities);
+  const axisTop = planForm.top - 3;
+  const axisBottom = planForm.bottom + 3;
+  const axes = [
+    [x + cutDepth / 10, "A"],
+    [x + g.loadOffset / 10, "B"],
+  ] as const;
+  for (const [axis] of axes)
+    line(axis, axisTop, axis, axisBottom, "EIXOS", true);
+  const planLayout = new AnnotationLayout(entities);
+  for (const [axis, label] of axes) {
+    planLayout.axisLabel(axis, axisTop, label, "top");
+    planLayout.axisLabel(axis, axisBottom, label, "bottom");
+  }
+  planLayout.dimension(
+    { x, y: planY + B },
+    { x: x + L, y: planY + B },
+    dimensionLabel("length", g.length),
+    "bottom",
   );
+  planLayout.dimension(
+    { x: x + L, y: planY },
+    { x: x + L, y: planY + B },
+    dimensionLabel("width", g.width),
+    "right",
+  );
+  for (let layer = 1; layer < d.tieRows.length; layer++) {
+    const bars = tieBars.filter((bar) =>
+      bar.locations.some((loc) => loc.layer === layer),
+    );
+    const item = plan.find(
+      ({ bar, instance, part }) =>
+        part.role === "body" &&
+        bars.includes(bar) &&
+        bar.locations[bar.instances.indexOf(instance)]?.layer === layer,
+    );
+    const anchor = item && shapeAnchor(item.shape);
+    if (!anchor) continue;
+    planLayout.leader(
+      { x: x + anchor.x / 10, y: planY + anchor.y / 10 },
+      `${bars.map((bar) => bar.mark).join(" / ")} - ${layer + 1}ª camada`,
+    );
+  }
   const stitchPenetration = (family: "stitch" | "lower") => {
     const bar = stitchBars.find((bar) => bar.family === family);
     const length = bar?.anchorage.find(
@@ -695,27 +614,30 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     stitchPenetration("stitch"),
     stitchPenetration("lower"),
   ].filter(Boolean);
-  text(
+  const planBlock = viewBlock(
+    planLayout,
     x - P,
-    planY + B + 28,
-    stitchLengths.length
-      ? `Penetração no suporte pelo eixo · ${stitchLengths.join(" · ")} · cobrimento nominal ${cm(g.cover)} cm.`
-      : `Cobrimento nominal ${cm(g.cover)} cm.`,
-    2.2,
+    [["PLANTA DAS ARMADURAS / TIRANTES", 2.8]],
+    [
+      [
+        `Apoio: ${cm(q.bearingLength)} × ${cm(q.bearingWidth)} × ${cm(q.bearingHeight)} cm`,
+        2.2,
+      ],
+      [
+        stitchLengths.length
+          ? `Penetração no suporte pelo eixo · ${stitchLengths.join(" · ")} · cobrimento nominal ${cm(g.cover)} cm.`
+          : `Cobrimento nominal ${cm(g.cover)} cm.`,
+        2.2,
+      ],
+      ["Armaduras secundárias em tracejado.", 2.2],
+    ],
   );
-  text(x - P, planY + B + 33, "Armaduras secundárias em tracejado.", 2.2);
   const outerStations = verticalBars
     .filter((bar) => bar.family === "stirrup")
     .flatMap((bar) => bar.locations.map((loc) => loc.x))
     .sort((a, b) => a - b);
   const bearingDepth = bottomDepth(concrete, g.loadOffset);
   const bearingH = bearingDepth / 10;
-  text(
-    sectionX,
-    planY - Math.max(10, Math.max(bearingHeight, pinProjection) + 5),
-    `CORTE B-B / x=${cm(g.loadOffset)} cm`,
-    2.8,
-  );
   rect(sectionX, planY, B, bearingH);
   rect(
     sectionX + (B - q.bearingWidth / 10) / 2,
@@ -730,81 +652,86 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
   const centers = d.bars
     .filter((bar) => bar.family === "pin")
     .flatMap((bar) => bar.instances.map((pin) => pin.parts[0].at / 10));
-  if (centers.length) {
-    if (centers.length > 1)
-      dim(
-        sectionX + centers[0],
-        planY + bearingH,
-        sectionX + centers.at(-1)!,
-        planY + bearingH,
-        8,
-        `s = ${centers.length - 1} × ${cm((centers[1] - centers[0]) * 10)}`,
-      );
-    dim(
-      sectionX,
-      planY + bearingH,
-      sectionX + centers[0],
-      planY + bearingH,
-      16,
-      `e = ${cm(centers[0] * 10)}`,
+  const bearingLayout = new AnnotationLayout(entities);
+  const bearingBase = (u: number) => ({ x: sectionX + u, y: planY + bearingH });
+  if (centers.length > 1)
+    bearingLayout.dimension(
+      bearingBase(centers[0]),
+      bearingBase(centers.at(-1)!),
+      `s = ${centers.length - 1} × ${cm((centers[1] - centers[0]) * 10)}`,
+      "bottom",
     );
-  }
-  dim(
-    sectionX,
-    planY + bearingH,
-    sectionX + B,
-    planY + bearingH,
-    centers.length ? 24 : 8,
+  if (centers.length)
+    bearingLayout.dimension(
+      bearingBase(0),
+      bearingBase(centers[0]),
+      `e = ${cm(centers[0] * 10)}`,
+      "bottom",
+    );
+  bearingLayout.dimension(
+    bearingBase(0),
+    bearingBase(B),
     dimensionLabel("width", g.width),
+    "bottom",
   );
-  dim(
-    sectionX + B,
-    planY,
-    sectionX + B,
-    planY + bearingH,
-    10,
+  bearingLayout.dimension(
+    { x: sectionX + B, y: planY },
+    bearingBase(B),
     dimensionLabel("bearingSectionHeight", bearingDepth),
+    "right",
   );
-  const bx = x + g.loadOffset / 10;
-  line(bx, planY - 5, bx, planY + B + 5, "EIXOS", true);
-  text(bx - 2, planY - 6, "B", 2.7);
-  text(bx - 2, planY + B + 10, "B", 2.7);
-  const infoY = planY + Math.max(B, bearingH) + (centers.length ? 34 : 22);
-  text(sectionX, infoY, "DISTRIBUIÇÃO DOS ESTRIBOS", 2.7);
-  text(
-    sectionX,
-    infoY + 6,
-    `N3: ${qty("stirrup")} externos detalhados · N3G: ${qty("stirrupInner")} internos detalhados.`,
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 11,
-    outerStations.length
-      ? `N3: primeiro eixo x=${cm(outerStations[0])} cm; último x=${cm(outerStations.at(-1)!)} cm.`
-      : "Nenhum eixo N3 detalhado.",
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 18,
-    `Costura superior: ${qty("stitch")} barras nos 2d/3 superiores.`,
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 23,
-    `Costura inferior: ${qty("lower")} barras no trecho restante.`,
-    2.1,
-  );
-  text(
-    sectionX,
-    infoY + 30,
-    cut
-      ? `Face inferior recortada (concreto excedente removido): ${anglesText}.`
-      : `Face inferior com inclinação ${anglesText}.`,
-    2.1,
-  );
+  const bearingBlock = viewBlock(bearingLayout, sectionX, [
+    [`CORTE B-B / x=${cm(g.loadOffset)} cm`, 2.8],
+  ]);
+
+  const margin = 10;
+  const gap = 9;
+  const bodyTop = 44;
+  const left =
+    margin - Math.min(elevationBlock.bounds.left, planBlock.bounds.left);
+  const right =
+    left +
+    Math.max(elevationBlock.bounds.right, planBlock.bounds.right) +
+    gap -
+    Math.min(sectionBlock.bounds.left, bearingBlock.bounds.left);
+  const topRow =
+    bodyTop - Math.min(elevationBlock.bounds.top, sectionBlock.bounds.top);
+  const bottomRow =
+    topRow +
+    Math.max(elevationBlock.bounds.bottom, sectionBlock.bounds.bottom) +
+    gap -
+    Math.min(planBlock.bounds.top, bearingBlock.bounds.top);
+  const place = (block: typeof elevationBlock, dx: number, dy: number) => {
+    for (const entity of block.entities)
+      entities.push(translateEntity(entity, dx, dy));
+  };
+  place(elevationBlock, left, topRow);
+  place(sectionBlock, right, topRow);
+  place(planBlock, left, bottomRow);
+  place(bearingBlock, right, bottomRow);
+  const infoY =
+    bottomRow +
+    Math.max(planBlock.bounds.bottom, bearingBlock.bounds.bottom) +
+    gap;
+  textRows(right + sectionX, infoY, [
+    ["DISTRIBUIÇÃO DOS ESTRIBOS", 2.7],
+    [
+      `N3: ${qty("stirrup")} externos detalhados · N3G: ${qty("stirrupInner")} internos detalhados.`,
+    ],
+    [
+      outerStations.length
+        ? `N3: primeiro eixo x=${cm(outerStations[0])} cm; último x=${cm(outerStations.at(-1)!)} cm.`
+        : "Nenhum eixo N3 detalhado.",
+    ],
+    [`Costura superior: ${qty("stitch")} barras nos 2d/3 superiores.`],
+    [`Costura inferior: ${qty("lower")} barras no trecho restante.`],
+    [
+      cut
+        ? `Face inferior recortada (concreto excedente removido): ${anglesText}.`
+        : `Face inferior com inclinação ${anglesText}.`,
+    ],
+  ]);
+  const tableX = drawingBounds(entities).right + gap;
   type GraphicCell = {
     height: number;
     draw: (x: number, y: number, height: number) => void;
@@ -815,8 +742,8 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     const gap = 4;
     const plotWidth = 66;
     const labelSize = 2.05;
-    const linePitch = 2.75;
-    const labelWidth = schematicWidth - plotWidth - gap - 2 * pad;
+    const linePitch = textPitch(labelSize);
+    const labelWidth = schematicWidth - plotWidth - gap - 2 * pad - 0.5;
     const hook = bar.instances[0]?.parts.find(
       (part) => part.role === "hook",
     )?.path;
@@ -887,7 +814,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         `Eixos z do topo (cm) ${bar.locations.map((v) => cm(v.z)).join(" / ")}`,
       );
     const lines = labels.flatMap((label) =>
-      wrap(label, Math.floor(labelWidth / labelSize)),
+      wrapText(label, labelWidth, labelSize),
     );
     const labelHeight = lines.length * linePitch;
     return {
@@ -913,7 +840,7 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
         for (const [i, label] of lines.entries())
           text(
             xx + pad + plotWidth + gap,
-            labelY + i * linePitch + labelSize,
+            labelY + i * linePitch + labelSize * 1.12 + 0.25,
             label,
             labelSize,
           );
@@ -953,11 +880,26 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     }
     return yy;
   };
-  let tableBottom = 49;
+  const tableGap = 12;
+  const steelColumns = [15, 16, 19, 20, 22, 35, 47, 31, schematicWidth];
+  for (const rows of schedules)
+    for (const row of rows)
+      for (const [i, value] of row.entries())
+        if (typeof value === "string")
+          steelColumns[i] = Math.max(
+            steelColumns[i],
+            textWidth(value, 2.1) + 3,
+          );
+  const tableW = steelColumns.reduce((sum, column) => sum + column, 0);
+  const tableTop = bodyTop + 5;
+  let tableBottom = tableTop;
   for (const [index, rows] of schedules.entries()) {
     const xx = tableX + index * (tableW + tableGap);
-    text(xx, 45, "RELAÇÃO DO AÇO - BARRAS FÍSICAS", 2.9);
-    tableBottom = Math.max(tableBottom, table(xx, 49, steelColumns, rows));
+    text(xx, bodyTop + 1, "RELAÇÃO DO AÇO - BARRAS FÍSICAS", 2.9);
+    tableBottom = Math.max(
+      tableBottom,
+      table(xx, tableTop, steelColumns, rows),
+    );
   }
   tableBottom += 8;
   text(tableX, tableBottom, "RESUMO DO AÇO - QUANTIDADE TOTAL DO TIPO", 2.6);
@@ -995,8 +937,51 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     "Massa teórica; sem perdas de corte, emendas ou acréscimo de compra.",
     2.05,
   );
-  let bottom = Math.max(infoY + 43, tableBottom + 30);
-  text(10, bottom, "NOTAS DE DETALHAMENTO E CONFERÊNCIA", 2.8);
+
+  const bodyBounds = drawingBounds(entities);
+  const heading = `${p.name}  |  DETALHAMENTO DO CONSOLO`;
+  const subtitle = `${project.name} · ${p.description}`;
+  const revision = `${s.revision || "R00"}  ·  ${p.quantity} PEÇA(S)`;
+  const materialLine = `fck ${number(p.materials.fck, 0)} MPa · Tirante ${grade(p.materials.fyk)} · Transversal ${grade(p.materials.fykTransverse)} · Cobrimento ${cm(g.cover)} cm · Cotas em cm / bitolas em mm`;
+  const tieLine = `Tirante: ${placed.tie} ramos detalhados em ${detailedTieLayers} camada(s)${detailedTieLayers === 2 ? " · TIRANTE DUPLO" : ""}${placed.tie !== declared.tie ? ` (${countText(placed.tie, declared.tie)})` : ""} · V${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.vertical / 1000, 1)} kN · H${q.forceMode === "design" ? "d" : "k"}=${number(p.loads.horizontal / 1000, 1)} kN · a_calc=${cm(reactionGeometry(p).a)} cm`;
+
+  const leftHeader = Math.max(
+    textWidth(heading, 3.5),
+    textWidth(subtitle, 2.5),
+    textWidth(materialLine, 2.3),
+    textWidth(tieLine, 2.3),
+  );
+  const rightHeader = Math.max(
+    textWidth(revision, 2.8),
+    textWidth("ConsoloStruct · OPENSTRUCT", 2.3),
+  );
+  const width = Math.max(
+    540,
+    bodyBounds.right + margin,
+    leftHeader + rightHeader + 3 * margin,
+  );
+  const body = entities;
+  entities = [];
+  text(margin, 8, heading, 3.5);
+  text(width - margin, 8, revision, 2.8, "TEXTOS", "end");
+  text(margin, 14, subtitle, 2.5);
+  text(width - margin, 14, "ConsoloStruct · OPENSTRUCT", 2.3, "TEXTOS", "end");
+  text(margin, 20, materialLine, 2.3);
+  text(margin, 26, tieLine, 2.3);
+  text(
+    10,
+    32,
+    d.issues.some((i) => i.severity === "error")
+      ? "PENDÊNCIAS IMPEDITIVAS - CORRIGIR ANTES DA EXECUÇÃO"
+      : "PARA CONFERÊNCIA DO RESPONSÁVEL TÉCNICO",
+    2.5,
+    "ALERTAS",
+  );
+  line(margin, 36, width - margin, 36, "COTAS");
+  for (const entity of body) entities.push(entity);
+  let bottom = textRows(margin, bodyBounds.bottom + gap, [
+    ["NOTAS DE DETALHAMENTO E CONFERÊNCIA", 2.8],
+  ]);
   const safety = materialSafety(q);
   const notes = [
     `N3: ${qty("stirrup")} estribo(s) externo(s); N3G: ${qty("stirrupInner")} estribo(s) interno(s). N4: ${qty("constructive")} barras construtivas Ø${number(r.constructiveDiameter ?? 8, 1)} mm, sem contribuição resistente. N5 fendilhamento e N6 suspensão exigem detalhamento próprio.`,
@@ -1032,17 +1017,13 @@ export function pieceDrawing(project: Project, d: Detail): Drawing {
     ),
     ...(s.notes ? [s.notes] : []),
   ];
-  for (const value of notes)
-    for (const row of wrap(value, Math.floor((width - 20) / 1.25))) {
-      bottom += 4.5;
-      text(
-        10,
-        bottom,
-        row,
-        2.1,
-        value.startsWith("CORRIGIR") ? "ALERTAS" : "TEXTOS",
-      );
-    }
+  for (const value of notes) {
+    const layer = value.startsWith("CORRIGIR") ? "ALERTAS" : "TEXTOS";
+    const rows = wrapText(value, width - 2 * margin, 2.1).map(
+      (row): Row => [row, 2.1, layer],
+    );
+    bottom = textRows(margin, bottom, rows);
+  }
   return { width, height: bottom + 12, entities, name: p.name, detail: d };
 }
 
@@ -1050,17 +1031,8 @@ export function combineDrawings(drawings: Drawing[]): Drawing {
   let y = 0;
   const entities: Entity[] = [];
   for (const drawing of drawings) {
-    for (const e of drawing.entities) {
-      if (e.type === "line")
-        entities.push({
-          ...e,
-          a: { ...e.a, y: e.a.y + y },
-          b: { ...e.b, y: e.b.y + y },
-        });
-      else if (e.type === "text")
-        entities.push({ ...e, at: { ...e.at, y: e.at.y + y } });
-      else entities.push({ ...e, center: { ...e.center, y: e.center.y + y } });
-    }
+    for (const entity of drawing.entities)
+      entities.push(translateEntity(entity, 0, y));
     y += drawing.height + 30;
   }
   return {
@@ -1173,5 +1145,10 @@ export function steelSummaryDrawing(
     "Identificar cada barra pela peça e pela posição (ex.: C01/N1). Conferir as pendências de cada tipo.",
     2.3,
   );
-  return { width: 270, height: y + 31, entities, name: "Resumo geral do aço" };
+  return {
+    width: Math.max(270, drawingBounds(entities).right + 10),
+    height: y + 31,
+    entities,
+    name: "Resumo geral do aço",
+  };
 }

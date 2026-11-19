@@ -4,6 +4,8 @@ Este arquivo resume as mudanças documentadas no código-fonte recebido. Não pr
 
 ## Não lançado
 
+- Organiza cotas, chamadas e legendas na prancha com caixas delimitadoras calculadas (issue #73). Cotas estreitas deslocam o rótulo para fora do vão, a planta reúne as marcas numa chamada por camada e os blocos da prancha se ajustam à área ocupada. A tela e as saídas SVG, DXF e PDF usam a mesma composição.
+
 - Integra as formas de dobramento à Relação do Aço (issue #70). Cada posição traz o esquema proporcional do eixo da barra, com trechos retos, dobras, mandris e notas. Alças com gancho no suporte incluem sua vista lateral cotada. A tabela compacta acompanha a prancha em SVG, DXF e PDF. O CSV mantém os mesmos campos e valores.
 
 - Representa bitolas, eixos e dobras das armaduras em escala geométrica nas vistas e na prancha (issue #69). Cortes usam círculos de raio físico. As barras chegam ao SVG e ao PDF com a largura da bitola e ao DXF em cm com polilinhas largas e arcos editáveis.

@@ -462,7 +462,13 @@ test("elevação e prancha acompanham o gancho de N1 ao editar ancoragem e bitol
         const [x2, y2] = await leg.evaluate((line) =>
           ["x2", "y2"].map((key) => Number(line.getAttribute(key))),
         );
-        return Math.hypot((x2 - 105) * 10 - x, (y2 - 52) * 10 - y);
+        const [originX, originY] = await sheet
+          .locator("line.detail-FORMAS")
+          .nth(1)
+          .evaluate((edge) =>
+            ["x2", "y2"].map((key) => Number(edge.getAttribute(key))),
+          );
+        return Math.hypot((x2 - originX) * 10 - x, (y2 - originY) * 10 - y);
       })
       .toBeLessThan(1e-6);
     const sheetArc = sheet.locator("path.detail-ARMADURAS").first();

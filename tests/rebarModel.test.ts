@@ -1,3 +1,4 @@
+import { sheetOrigins } from "./sheetOrigins";
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -344,20 +345,17 @@ describe("Fonte única das armaduras (#63)", () => {
     expect(spans).toHaveLength(p.rebar.stitchCount);
     expect(section.stitches).toEqual([]);
     const drawing = pieceDrawing({ ...exampleProject(), pieces: [p] }, detail);
-    const cut = drawing.entities.find(
-      (e) => e.type === "text" && e.text.startsWith("CORTE B-B"),
-    );
-    if (cut?.type !== "text") throw new Error("Corte B–B ausente");
+    const cut = sheetOrigins(drawing, p.geometry).sectionB;
     for (const { a, b } of spans)
       expect(
         drawing.entities.some(
           (e) =>
             e.type === "line" &&
             e.layer === "ARMADURAS" &&
-            close(e.a.x, cut.at.x + a.x / 10) &&
-            close(e.b.x, cut.at.x + b.x / 10) &&
-            close(e.a.y, cut.at.y + 10 + a.y / 10) &&
-            close(e.b.y, cut.at.y + 10 + b.y / 10),
+            close(e.a.x, cut.x + a.x / 10) &&
+            close(e.b.x, cut.x + b.x / 10) &&
+            close(e.a.y, cut.y + a.y / 10) &&
+            close(e.b.y, cut.y + b.y / 10),
         ),
       ).toBe(true);
   });

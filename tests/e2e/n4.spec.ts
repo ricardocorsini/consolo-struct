@@ -93,9 +93,22 @@ test("o eixo frontal e o quadro de N4 acompanham o cobrimento da peça padrão",
     .getByRole("button", { name: "Detalhamento", exact: true })
     .click();
   const sheet = page.locator(".detail-canvas");
-  await expect(
-    sheet.locator('line.detail-ARMADURAS[x1="67.1"][x2="67.1"]').first(),
-  ).toBeAttached();
+  const concreteFront = Number(
+    await sheet.locator("line.detail-FORMAS").nth(2).getAttribute("x2"),
+  );
+  const axis = concreteFront - (g.cover + r.constructiveDiameter / 2) / 10;
+  const drawnAxis = await sheet
+    .locator("line.detail-ARMADURAS")
+    .evaluateAll(
+      (lines, expected) =>
+        lines.some((line) =>
+          ["x1", "x2"].every(
+            (key) => Math.abs(Number(line.getAttribute(key)) - expected) < 1e-7,
+          ),
+        ),
+      axis,
+    );
+  expect(drawnAxis).toBe(true);
   const positionX = await sheet
     .locator("text")
     .filter({ hasText: /^Pos\.$/ })

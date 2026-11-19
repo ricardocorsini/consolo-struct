@@ -1,7 +1,63 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { inflateSync } from "node:zlib";
-import { number } from "../../src/domain/model";
+import { exampleProject, number } from "../../src/domain/model";
+import { drawingLayoutFixtures } from "../drawingLayoutFixtures";
+
+async function textConflicts(canvas: Locator) {
+  return canvas.evaluate((node: SVGSVGElement) => {
+    const model = node.querySelector<SVGGElement>(
+      '[data-testid="detail-model"]',
+    )!;
+    const sheet = model.getScreenCTM()!.inverse();
+    const limit = node.viewBox.baseVal;
+    const boxes = Array.from(node.querySelectorAll("text"))
+      .filter((text) => text.textContent?.trim())
+      .map((text) => {
+        const { x, y, width, height } = text.getBBox();
+        const transform = sheet.multiply(text.getScreenCTM()!);
+        const corners = [
+          [x, y],
+          [x + width, y],
+          [x, y + height],
+          [x + width, y + height],
+        ].map(([xx, yy]) => new DOMPoint(xx, yy).matrixTransform(transform));
+        return {
+          text: text.textContent,
+          left: Math.min(...corners.map((v) => v.x)),
+          top: Math.min(...corners.map((v) => v.y)),
+          right: Math.max(...corners.map((v) => v.x)),
+          bottom: Math.max(...corners.map((v) => v.y)),
+        };
+      })
+      .sort((a, b) => a.left - b.left);
+    const hits: string[] = [];
+    const tolerance = 1e-4;
+    for (const [i, a] of boxes.entries()) {
+      if (
+        a.left < limit.x - tolerance ||
+        a.top < limit.y - tolerance ||
+        a.right > limit.x + limit.width + tolerance ||
+        a.bottom > limit.y + limit.height + tolerance
+      )
+        hits.push(`Fora da prancha: ${a.text}`);
+      for (
+        let j = i + 1;
+        j < boxes.length && boxes[j].left < a.right - tolerance;
+        j++
+      ) {
+        const b = boxes[j];
+        if (
+          b.right > a.left + tolerance &&
+          b.top < a.bottom - tolerance &&
+          a.top < b.bottom - tolerance
+        )
+          hits.push(`${a.text} / ${b.text}`);
+      }
+    }
+    return hits;
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   const project = await readFile(
@@ -17,6 +73,67 @@ test.beforeEach(async ({ page }) => {
     .locator(".document-tabs")
     .getByRole("button", { name: "Detalhamento", exact: true })
     .click();
+});
+
+test("as peças C01 e C02 do exemplo têm caixas de texto disjuntas", async ({
+  page,
+}, info) => {
+  const canvas = page.locator(".detail-canvas");
+  await expect(canvas).toHaveAttribute("aria-label", "Detalhes de C01");
+  await expect.poll(() => textConflicts(canvas)).toEqual([]);
+  await canvas.screenshot({ path: info.outputPath("c01-prancha.png") });
+  await page.getByLabel("Peça do detalhamento").selectOption("double-tie");
+  await expect(canvas).toHaveAttribute("aria-label", "Detalhes de C02");
+  await expect.poll(() => textConflicts(canvas)).toEqual([]);
+  await canvas.screenshot({ path: info.outputPath("c02-prancha.png") });
+});
+
+for (const { name, piece } of drawingLayoutFixtures().filter(({ name }) =>
+  [
+    "Pequeno",
+    "Grande",
+    "Quatro camadas e vinte pinos",
+    "Recortado",
+    "Armado como viga",
+  ].includes(name),
+)) {
+  test(`${name} tem caixas de texto disjuntas no navegador`, async ({
+    page,
+  }) => {
+    await page.evaluate(
+      (raw) => localStorage.setItem("consolostruct.project.v1", raw),
+      JSON.stringify({ ...exampleProject(), pieces: [piece] }),
+    );
+    await page.reload();
+    await page
+      .locator(".document-tabs")
+      .getByRole("button", { name: "Detalhamento", exact: true })
+      .click();
+    const canvas = page.getByRole("img", {
+      name: `Detalhes de ${name}`,
+      exact: true,
+    });
+    await expect(
+      canvas.getByText("DISTRIBUIÇÃO DOS ESTRIBOS", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => textConflicts(canvas)).toEqual([]);
+  });
+}
+
+test("editar camadas e pinos reorganiza a prancha sem sobrepor textos", async ({
+  page,
+}) => {
+  const canvas = page.locator(".detail-canvas");
+  await expect(canvas).toHaveAttribute("aria-label", "Detalhes de C01");
+  await page.getByLabel("Disposição do tirante").selectOption("2");
+  await expect(canvas.getByText(/ - 2ª camada$/)).toHaveCount(1);
+  await expect.poll(() => textConflicts(canvas)).toEqual([]);
+  const pins = page.getByLabel(/Quantidade de pinos/);
+  await pins.fill("3");
+  await pins.press("Enter");
+  await expect(canvas.getByText(/^3 PINO(?:-\d+)? \(pinos\)$/)).toBeVisible();
+  await expect(canvas.getByText(/^s = 2 × /)).toBeVisible();
+  await expect.poll(() => textConflicts(canvas)).toEqual([]);
 });
 
 test("as seis dimensões editadas aparecem nas vistas e nos três formatos vetoriais", async ({
@@ -101,6 +218,7 @@ test("as seis dimensões editadas aparecem nas vistas e nos três formatos vetor
   const labels = [...dimensions.map(({ label }) => label), h1, cutHeight];
   for (const label of labels) await expect(drawing).toContainText(label);
   await expect(drawing).toContainText("H(B-B) = ");
+  await expect.poll(() => textConflicts(drawing)).toEqual([]);
   for (const format of ["SVG", "DXF", "PDF"]) {
     const downloaded = page.waitForEvent("download");
     await page
