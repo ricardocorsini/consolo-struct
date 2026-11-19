@@ -1,4 +1,5 @@
 import DesignPanel from "./DesignPanel";
+import { dimensionMetadata } from "../domain/dimensions";
 import { ribbonCommands } from "./ribbonCommands";
 import { coefficientText } from "../domain/materialSafety";
 import {
@@ -132,30 +133,25 @@ function Inspector({
             <div className="fields-grid">
               {(
                 [
-                  { key: "width", label: "Largura", symbol: "b" },
-                  { key: "height", label: "Altura no pilar", symbol: "h" },
-                  { key: "tipHeight", label: "Altura na ponta", symbol: "h₂" },
-                  { key: "length", label: "Comprimento", symbol: "L" },
-                  { key: "loadOffset", label: "Posição da carga", symbol: "a" },
-                  {
-                    key: "columnWidth",
-                    label: "Dimensão do pilar",
-                    symbol: "P",
-                  },
+                  "width",
+                  "height",
+                  "tipHeight",
+                  "length",
+                  "loadOffset",
+                  "columnWidth",
                 ] as const
-              ).map((f) => (
+              ).map((key) => (
                 <NumericField
-                  key={f.key}
-                  label={f.label}
-                  symbol={f.symbol}
+                  key={key}
+                  {...dimensionMetadata[key]}
                   unit="cm"
-                  value={p.geometry[f.key]}
+                  value={p.geometry[key]}
                   factor={10}
                   min={5}
                   max={6000}
-                  onFocus={() => onFocus(f.key)}
+                  onFocus={() => onFocus(key)}
                   onChange={(v) =>
-                    update({ ...p, geometry: { ...p.geometry, [f.key]: v } })
+                    update({ ...p, geometry: { ...p.geometry, [key]: v } })
                   }
                 />
               ))}
@@ -163,7 +159,7 @@ function Inspector({
             <div className="section-label section-spaced">COBRIMENTO</div>
             <NumericField
               label="Cobrimento nominal informado"
-              symbol="c"
+              symbol={dimensionMetadata.cover.symbol}
               unit="cm"
               value={p.geometry.cover}
               factor={10}

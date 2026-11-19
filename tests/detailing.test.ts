@@ -8,10 +8,88 @@ import {
 import { buildDetail } from "../src/detailing/model";
 import { combineDrawings, pieceDrawing } from "../src/detailing/drawing";
 import { drawingDxf, drawingSvg, steelCsv } from "../src/detailing/exports";
-import { decodeProject, exampleProject } from "../src/domain/model";
+import { decodeProject, exampleProject, number } from "../src/domain/model";
+import { bottomDepth, concreteProfile } from "../src/domain/profile";
 import { stirrupLayout } from "../src/domain/theory";
 import { toCsv, toDxf, toSvg } from "../src/lib/exports";
 import { cantileverFixture, shortFixture } from "./fixtures";
+
+describe("Cotas geométricas da prancha", () => {
+  it("liga A, L, H1 e as cotas de planta e cortes aos vértices medidos", () => {
+    const p = shortFixture();
+    const g = p.geometry;
+    const drawing = pieceDrawing(exampleProject(), buildDetail(p));
+    const labels = drawing.entities.filter((e) => e.type === "text");
+    const lines = drawing.entities.filter(
+      (e) => e.type === "line" && e.layer === "COTAS",
+    );
+    const label = (s: string) => labels.find((e) => e.text.startsWith(s))!;
+    const line = (x1: number, y1: number, x2: number, y2: number) => {
+      expect(
+        lines.some(({ a, b }) =>
+          [a.x - x1, a.y - y1, b.x - x2, b.y - y2].every(
+            (v) => Math.abs(v) < 1e-8,
+          ),
+        ),
+      ).toBe(true);
+    };
+    const sectionA = label("CORTE A-A /");
+    const sectionB = label("CORTE B-B /");
+    const y = sectionA.at.y + 8;
+    const planY = sectionB.at.y + 10;
+    const x = g.columnWidth / 10 + 15;
+    const tip = x + g.length / 10;
+    const width = g.width / 10;
+    const rootBottom = y + g.height / 10;
+    const tipBottom = y + g.tipHeight / 10;
+    const loadY = label("A = ").at.y + 1.5;
+    const lenY = label("L = ").at.y + 1.5;
+    expect(loadY).toBeLessThan(y);
+    expect(label("P = ").at.y + 1.5).toBe(loadY);
+    line(x, loadY, x + g.loadOffset / 10, loadY);
+    expect(lenY).toBeGreaterThan(rootBottom);
+    line(x, lenY, tip, lenY);
+    line(tip, tipBottom + 1, tip, lenY + 2);
+
+    const drop = label("H1 = ");
+    expect(drop.text).toBe(`H1 = ${number((g.height - g.tipHeight) / 10)}`);
+    const dropX = drop.at.x + 1.5;
+    expect(dropX).toBeGreaterThan(tip);
+    expect(label("H = ").at.x).toBeGreaterThan(drop.at.x);
+    line(dropX, tipBottom, dropX, rootBottom);
+    line(x + 1, rootBottom, dropX + 2, rootBottom);
+    const planLength = labels.find(
+      (e) => e.text.startsWith("L = ") && e.at.y > planY,
+    )!;
+    line(x, planLength.at.y + 1.5, tip, planLength.at.y + 1.5);
+    const planWidth = labels.find(
+      (e) => e.text.startsWith("b = ") && e.at.x < sectionA.at.x,
+    )!;
+    line(planWidth.at.x + 1.5, planY, planWidth.at.x + 1.5, planY + width);
+
+    const profile = concreteProfile(p);
+    for (const [cut, top, station, symbol] of [
+      [sectionA, y, stirrupLayout(p).positions[0], "H(x1)"],
+      [sectionB, planY, g.loadOffset, "H(B-B)"],
+    ] as const) {
+      const left = cut.at.x;
+      const depth = bottomDepth(profile, station) / 10;
+      const bottom = top + depth;
+      expect(label(`${symbol} = `).text).toBe(`${symbol} = ${number(depth)}`);
+      line(left, bottom + 1, left, bottom + 10);
+      line(left + width, bottom + 1, left + width, bottom + 10);
+      line(left, bottom + 8, left + width, bottom + 8);
+      line(left + width + 10, top, left + width + 10, bottom);
+    }
+    expect(
+      labels.filter((e) => e.text === `b = ${number(width)}`),
+    ).toHaveLength(3);
+    p.geometry.tipHeight = p.geometry.height;
+    expect(
+      drawingSvg(pieceDrawing(exampleProject(), buildDetail(p))),
+    ).not.toContain("H1 = ");
+  });
+});
 
 describe("Centro de gravidade das barras e comprimentos de oficina", () => {
   it("alça U inclui duas curvas de 90° sem somar os cantos virtuais", () => {

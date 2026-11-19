@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { inflateSync } from "node:zlib";
+import { number } from "../../src/domain/model";
 
 test.beforeEach(async ({ page }) => {
   const project = await readFile(
@@ -15,6 +17,131 @@ test.beforeEach(async ({ page }) => {
     .locator(".document-tabs")
     .getByRole("button", { name: "Detalhamento", exact: true })
     .click();
+});
+
+test("as seis dimensões editadas aparecem nas vistas e nos três formatos vetoriais", async ({
+  page,
+}) => {
+  const tabs = page.locator(".document-tabs");
+  await tabs
+    .getByRole("button", { name: "C01 · Elevação", exact: true })
+    .click();
+  const entries = [
+    ["width", "Largura", "b", 41.2],
+    ["height", "Altura no pilar", "H", 54.3],
+    ["tipHeight", "Altura na ponta", "H2", 27.1],
+    ["length", "Comprimento", "L", 48.5],
+    ["loadOffset", "Posição da carga", "A", 31.2],
+    ["columnWidth", "Dimensão do pilar", "P", 93.4],
+  ] as const;
+  for (const [, name, symbol, value] of entries) {
+    const field = page.getByRole("textbox", {
+      name: new RegExp(`^${name} ${symbol} cm$`),
+    });
+    await field.fill(String(value).replace(".", ","));
+    await field.press("Enter");
+  }
+  const dimensions = entries.map(([id, , symbol, value]) => ({
+    id,
+    label: `${symbol} = ${number(value)}`,
+  }));
+  const h1 = "H1 = 27,2";
+  const elevation = page.getByRole("group", {
+    name: "Elevação do consolo C01",
+  });
+  for (const { id, label } of dimensions)
+    if (id !== "width")
+      await expect(
+        elevation.getByRole("button", { name: `Editar ${label}`, exact: true }),
+      ).toBeVisible();
+  await expect(elevation.getByRole("img", { name: /^H1 =/ })).toContainText(h1);
+  await tabs.getByRole("button", { name: "Seção A–A", exact: true }).click();
+  const section = page.getByRole("group", {
+    name: "Seção transversal do consolo C01",
+  });
+  await expect(
+    section.getByRole("button", { name: "Editar b = 41,2", exact: true }),
+  ).toBeVisible();
+  const cutHeight = (await section
+    .getByRole("img", { name: /^H\(x1\) =/ })
+    .locator("text")
+    .textContent())!;
+
+  await tabs.getByRole("button", { name: "Vista 3D", exact: true }).click();
+  const view = page.getByTestId("viewport-3d");
+  await expect(view).toHaveAttribute("data-renderer", /webgl|svg/);
+  for (const { id, label } of dimensions)
+    await expect(
+      view.getByLabel(`Editar cota 3D ${id}`, { exact: true }),
+    ).toHaveText(`${label} cm`);
+  await expect(
+    view.getByRole("img", { name: `${h1} cm`, exact: true }),
+  ).toBeVisible();
+  const annotations = await view
+    .locator(".three-dimension-label")
+    .evaluateAll((nodes) =>
+      nodes
+        .filter((el) => getComputedStyle(el).visibility === "visible")
+        .map((el) => {
+          const { left, right, top, bottom } = el.getBoundingClientRect();
+          return { left, right, top, bottom };
+        }),
+    );
+  for (const [i, a] of annotations.entries())
+    for (const b of annotations.slice(i + 1))
+      expect(
+        a.right <= b.left ||
+          b.right <= a.left ||
+          a.bottom <= b.top ||
+          b.bottom <= a.top,
+      ).toBe(true);
+
+  await tabs.getByRole("button", { name: "Detalhamento", exact: true }).click();
+  const drawing = page.locator(".detail-canvas");
+  const labels = [...dimensions.map(({ label }) => label), h1, cutHeight];
+  for (const label of labels) await expect(drawing).toContainText(label);
+  await expect(drawing).toContainText("H(B-B) = ");
+  for (const format of ["SVG", "DXF", "PDF"]) {
+    const downloaded = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: `Detalhes ${format}`, exact: true })
+      .click();
+    const raw = await readFile((await (await downloaded).path())!);
+    let content = raw.toString("utf8");
+    if (format === "PDF") {
+      expect(raw.subarray(0, 5).toString()).toBe("%PDF-");
+      content = Array.from(
+        raw.toString("latin1").matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g),
+        ([, stream]) => {
+          try {
+            return inflateSync(Buffer.from(stream, "latin1")).toString(
+              "latin1",
+            );
+          } catch {
+            return stream;
+          }
+        },
+      )
+        .join("\n")
+        .replace(/\\([()])/g, "$1");
+    }
+    for (const label of labels) expect(content).toContain(label);
+    expect(content).toContain("H(B-B) = ");
+  }
+  const saved = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Salvar projeto", exact: true })
+    .click();
+  const project = JSON.parse(
+    await readFile((await (await saved).path())!, "utf8"),
+  );
+  expect(project.schemaVersion).toBe(6);
+  expect(Object.keys(project.pieces[0].geometry).sort()).toEqual(
+    [...entries.map(([id]) => id), "cover"].sort(),
+  );
+  for (const [id, , , value] of entries) {
+    expect(project.pieces[0].geometry[id]).toBeCloseTo(value * 10, 8);
+  }
 });
 
 test("detalhe individual e de todos: DXF em cm, quadro CSV e PDF vetorial", async ({

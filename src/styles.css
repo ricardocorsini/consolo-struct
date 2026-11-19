@@ -2358,6 +2358,10 @@ kbd {
   background: var(--surface);
   outline: 0;
 }
+.three-dimension-derived {
+  cursor: default;
+  pointer-events: none;
+}
 .three-force-label {
   font-size: 11px;
   font-weight: 600;

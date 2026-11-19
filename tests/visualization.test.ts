@@ -42,7 +42,7 @@ describe("Geometria técnica 3D", () => {
     expect(meshVolume(g)).toBeCloseTo(33750000, 3);
     g.dispose();
   });
-  it("mantém as seis cotas ligadas aos valores atuais da peça", () => {
+  it("mantém as seis cotas editáveis e H1 nas referências da elevação", () => {
     const p = newPiece(1);
     p.geometry.length = 325;
     const m = buildSceneModel(p);
@@ -50,6 +50,7 @@ describe("Geometria técnica 3D", () => {
       [
         "columnWidth",
         "height",
+        "heightDifference",
         "length",
         "loadOffset",
         "tipHeight",
@@ -59,7 +60,38 @@ describe("Geometria técnica 3D", () => {
     expect(m.dimensions.find((d) => d.id === "length")!.label).toBe(
       "L = 32,5 cm",
     );
-    for (const d of m.dimensions) expect(d.value).toBe(p.geometry[d.id]);
+    for (const d of m.dimensions)
+      expect(d.value).toBe(
+        d.id === "heightDifference"
+          ? p.geometry.height - p.geometry.tipHeight
+          : p.geometry[d.id],
+      );
+    const length = m.dimensions.find((d) => d.id === "length")!;
+    const a = m.dimensions.find((d) => d.id === "loadOffset")!;
+    const pillar = m.dimensions.find((d) => d.id === "columnWidth")!;
+    const h = m.dimensions.find((d) => d.id === "height")!;
+    const h2 = m.dimensions.find((d) => d.id === "tipHeight")!;
+    const h1 = m.dimensions.find((d) => d.id === "heightDifference")!;
+    expect(a.label).toBe("A = 12,5 cm");
+    expect(a.from[2]).toBeGreaterThan(0);
+    expect(pillar.from[2]).toBe(a.from[2]);
+    expect(a.witnesses[1][0].slice(0, 2)).toEqual([125, 0]);
+    expect(length.from[2]).toBeLessThan(-p.geometry.height);
+    expect(length.from[2]).toBe(length.to[2]);
+    expect(length.witnesses.map(([p]) => [p[0], p[2]])).toEqual([
+      [0, -400],
+      [325, -200],
+    ]);
+    expect(h1.label).toBe("H1 = 20,0 cm");
+    expect(h1.from).toEqual(h2.to);
+    expect(h1.to[2]).toBe(h.to[2]);
+    expect(h1.to[0]).toBeLessThan(h.to[0]);
+    expect(h1.witnesses[0][0]).toEqual([325, -150, -200]);
+    expect(h1.witnesses[1][0]).toEqual([0, -150, -400]);
+    p.geometry.tipHeight = p.geometry.height;
+    expect(buildSceneModel(p).dimensions.map((d) => d.id)).not.toContain(
+      "heightDifference",
+    );
   });
   it("cargas características conservam valor, direção e altura de aplicação", () => {
     const p = newPiece(1),

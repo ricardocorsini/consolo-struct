@@ -22,6 +22,7 @@ import {
   Info,
 } from "lucide-react";
 import { type Piece, type GeometryKey, number } from "../domain/model";
+import { dimensionFieldLabel, dimensionMetadata } from "../domain/dimensions";
 import type { ViewportHandle } from "./Viewport";
 import { buildSceneModel, type Point3 } from "../visualization/model3d";
 import { createModelGroup, disposeGroup } from "../visualization/scene3d";
@@ -61,15 +62,6 @@ const presets: Record<Preset, Point3> = {
   front: [0, -1, 0],
   top: [0, 0, 1],
   side: [1, 0, 0],
-};
-const names: Record<GeometryKey, string> = {
-  width: "Largura b",
-  height: "Altura h",
-  tipHeight: "Altura na ponta h₂",
-  length: "Comprimento L",
-  loadOffset: "Posição da carga a",
-  columnWidth: "Dimensão do suporte P",
-  cover: "Cobrimento c",
 };
 export default function ThreeViewport(props: Props) {
   const { piece, dimensions, forces, mode, focus, apiRef } = props;
@@ -248,6 +240,7 @@ export default function ThreeViewport(props: Props) {
           Number(b.id === "vertical" || b.id === "horizontal") -
           Number(a.id === "vertical" || a.id === "horizontal"),
       );
+      const totalHeight = state.model.dimensions.find((d) => d.id === "height");
       const sizes = new Map(
         ordered.map((a) => {
           const el = labels.current.get(a.id);
@@ -264,13 +257,18 @@ export default function ThreeViewport(props: Props) {
           a = screen(annotation.from),
           b = screen(annotation.to),
           size = sizes.get(annotation.id)!;
+        // H1 follows the visibility of the height axis, even for a tiny drop.
+        const [start, end] =
+          annotation.id === "heightDifference" && totalHeight
+            ? [screen(totalHeight.from), screen(totalHeight.to)]
+            : [a, b];
         const visible =
           annotation.visible &&
           p.z >= -1 &&
           p.z <= 1 &&
           (annotation.id === "vertical" ||
             annotation.id === "horizontal" ||
-            Math.hypot(a.x - b.x, a.y - b.y) > 10);
+            Math.hypot(start.x - end.x, start.y - end.y) > 10);
         const leader = leaders.current?.querySelector(
           `[data-leader="${annotation.id}"]`,
         );
@@ -287,6 +285,12 @@ export default function ThreeViewport(props: Props) {
             [42, 0],
             [-42, -24],
             [42, 24],
+            [size.w + 14, 0],
+            [-size.w - 14, 0],
+            [0, -72],
+            [0, 72],
+            [size.w + 14, -24],
+            [-size.w - 14, 24],
           ]) {
             const candidate = {
               x: p.x + dx,
@@ -688,21 +692,37 @@ export default function ThreeViewport(props: Props) {
       </svg>
       <div className="three-labels" aria-label="Anotações 3D">
         {dimensions &&
-          model.dimensions.map((d) => (
-            <button
-              key={d.id}
-              ref={(el) => {
-                if (el) labels.current.set(d.id, el);
-                else labels.current.delete(d.id);
-              }}
-              className={`three-dimension-label ${focus === d.id ? "active" : ""}`}
-              aria-label={`Editar cota 3D ${d.id}`}
-              title={`Editar ${names[d.id]}`}
-              onClick={(e) => edit(d.id, e)}
-            >
-              {d.label}
-            </button>
-          ))}
+          model.dimensions.map(({ id, label }) => {
+            const ref = (el: HTMLElement | null) => {
+              if (el) labels.current.set(id, el);
+              else labels.current.delete(id);
+            };
+            if (id === "heightDifference")
+              return (
+                <span
+                  key={id}
+                  ref={ref}
+                  className="three-dimension-label three-dimension-derived"
+                  role="img"
+                  aria-label={label}
+                  title={dimensionMetadata[id].label}
+                >
+                  {label}
+                </span>
+              );
+            return (
+              <button
+                key={id}
+                ref={ref}
+                className={`three-dimension-label ${focus === id ? "active" : ""}`}
+                aria-label={`Editar cota 3D ${id}`}
+                title={`Editar ${dimensionFieldLabel(id)}`}
+                onClick={(e) => edit(id, e)}
+              >
+                {label}
+              </button>
+            );
+          })}
         {forces &&
           model.loads.map((l) => (
             <span
@@ -829,7 +849,9 @@ export default function ThreeViewport(props: Props) {
           }}
           aria-label="Editar cota 3D"
         >
-          <label htmlFor="dimension-3d-value">{names[editor.key]}</label>
+          <label htmlFor="dimension-3d-value">
+            {dimensionFieldLabel(editor.key)}
+          </label>
           <div>
             <input
               ref={input}
